@@ -24,6 +24,7 @@ jobs:
           solution-folder: solutions/MainSolution/src
           solution-file: MainSolution_managed.zip
           solution-type: Managed
+          use-unmanaged-file-for-missing-managed: true
 
       - name: Import to QA
         uses: microsoft/powerplatform-actions/import-solution@v1
