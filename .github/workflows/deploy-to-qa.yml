@@ -2,6 +2,11 @@ name: deploy-to-qa
 
 on:
   workflow_dispatch:
+    inputs:
+      solution_name:
+        description: "Nom de la solution à déployer vers QA"
+        required: true
+        default: "MainSolution"
 
 permissions:
   contents: read
@@ -18,13 +23,12 @@ jobs:
       - name: Install Power Platform Tools
         uses: microsoft/powerplatform-actions/actions-install@v1
 
-      - name: Pack solution
+      - name: Pack ${{ inputs.solution_name }} as managed
         uses: microsoft/powerplatform-actions/pack-solution@v1
         with:
-          solution-folder: solutions/MainSolution/src
-          solution-file: MainSolution_managed.zip
+          solution-folder: solutions/${{ inputs.solution_name }}/src
+          solution-file: out/${{ inputs.solution_name }}_managed.zip
           solution-type: Managed
-          use-unmanaged-file-for-missing-managed: true
 
       - name: Import to QA
         uses: microsoft/powerplatform-actions/import-solution@v1
@@ -33,5 +37,5 @@ jobs:
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
           solution-file: MainSolution_managed.zip
-          overwrite-unmanaged-customizations: true
+          force-overwrite: true
           publish-changes: true
