@@ -2,6 +2,12 @@ name: export-solution
 
 on:
   workflow_dispatch:
+    inputs:
+      solution_name:
+        description: "Nom de la solution à exporter"
+        required: true
+        default: "MainSolution"
+
 
 permissions:
   contents: write
@@ -18,28 +24,38 @@ jobs:
       - name: Install Power Platform Tools
         uses: microsoft/powerplatform-actions/actions-install@v1
 
-      - name: Export solution from DEV
+      - name: Export ${{ inputs.solution_name }} unmanaged solution from DEV
         uses: microsoft/powerplatform-actions/export-solution@v1
         with:
           environment-url: ${{ vars.DEV_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-name: MainSolution
-          solution-output-file: MainSolution.zip
+          solution-name: ${{ inputs.solution_name }}
+          solution-output-file: out/${{ inputs.solution_name }}_unmanaged.zip
           managed: false
 
-      - name: Unpack solution
+      - name: Export ${{ inputs.solution_name }} managed solution from DEV
+        uses: microsoft/powerplatform-actions/export-solution@v1
+        with:
+          environment-url: ${{ vars.DEV_ENV_URL }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-name: ${{ inputs.solution_name }}
+          solution-output-file: out/${{ inputs.solution_name }}_managed.zip
+          managed: true
+
+      - name: Unpack ${{ inputs.solution_name }} unmanaged solution
         uses: microsoft/powerplatform-actions/unpack-solution@v1
         with:
-          solution-file: MainSolution.zip
-          solution-folder: solutions/MainSolution/src
+          solution-file: out/${{ inputs.solution_name }}_unmanaged.zip
+          solution-folder: solutions/${{ inputs.solution_name }}/src
+          solution-type: Both
           overwrite-files: true
 
       - name: Commit changes
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-
           git add .
-          git commit -m "Update MainSolution from DEV" || echo "No changes to commit"
+          git commit -m "chore: sync ${{ inputs.solution_name }} (managed + unmanaged) from DEV" || echo "No changes to commit"
           git push
