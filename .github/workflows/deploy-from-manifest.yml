@@ -8,40 +8,37 @@ permissions:
   id-token: write
 
 jobs:
-  deploy:
+  build-matrix:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install yq
+      - name: Install yq + jq
         run: |
           sudo apt-get update
           sudo apt-get install -y jq
           pip install yq
 
-      - name: Read manifest
-        id: manifest
-        run: |
-          solutions=$(yq -r '.solutions[].name' manifests/qa/release.yml | jq -R -s -c 'split("\n")[:-1]')
-          echo "solutions=$solutions" >> $GITHUB_OUTPUT
-
-      - name: Set matrix
+      - name: Read and sort manifest
         id: set-matrix
         run: |
-          echo "matrix=$(echo '${{ steps.manifest.outputs.solutions }}')" >> $GITHUB_OUTPUT
-
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
+          sorted=$(yq -o=json '.solutions' manifests/qa/release.yml | jq -c 'sort_by(.order)')
+          echo "matrix={\"include\":$sorted}" >> $GITHUB_OUTPUT
+          echo "Sorted matrix:"
+          echo "{\"include\":$sorted}"
 
   deploy-solutions:
-    needs: deploy
+    needs: build-matrix
     runs-on: ubuntu-latest
 
     strategy:
-      matrix:
-        solution: ${{ fromJson(needs.deploy.outputs.matrix) }}
+      fail-fast: true
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
 
     steps:
       - name: Checkout repo
@@ -50,19 +47,26 @@ jobs:
       - name: Install Power Platform Tools
         uses: microsoft/powerplatform-actions/actions-install@v1
 
-      - name: Pack ${{ matrix.solution }}
+      - name: Validate folder exists
+        run: |
+          test -d "solutions/${{ matrix.name }}/src" || {
+            echo "Folder not found: solutions/${{ matrix.name }}/src"
+            exit 1
+          }
+
+      - name: Pack ${{ matrix.name }} as managed
         uses: microsoft/powerplatform-actions/pack-solution@v1
         with:
-          solution-folder: solutions/${{ matrix.solution }}/src
-          solution-file: out/${{ matrix.solution }}_managed.zip
+          solution-folder: solutions/${{ matrix.name }}/src
+          solution-file: out/${{ matrix.name }}_managed.zip
           solution-type: Managed
 
-      - name: Import ${{ matrix.solution }} to QA
+      - name: Import ${{ matrix.name }} to QA
         uses: microsoft/powerplatform-actions/import-solution@v1
         with:
           environment-url: ${{ vars.QA_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/${{ matrix.solution }}_managed.zip
+          solution-file: out/${{ matrix.name }}_managed.zip
           force-overwrite: true
           publish-changes: true
