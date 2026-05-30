@@ -1,1 +1,10 @@
+release:
+  name: "qa-release-1"
+  target: "qa"
 
+solutions:
+  - name: "MainSolution"
+    order: 10
+
+  - name: "SurveysSolution"
+    order: 20
