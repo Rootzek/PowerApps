@@ -26,7 +26,7 @@ jobs:
       - name: Read and sort manifest
         id: set-matrix
         run: |
-          sorted=$(yq eval -o=json '.solutions' manifests/qa/release.yml | jq -c 'sort_by(.order)')
+          sorted=$(yq '.solutions' manifests/qa/release.yml | jq -c 'sort_by(.order)')
           echo "matrix={\"include\":$sorted}" >> $GITHUB_OUTPUT
           echo "Sorted matrix:"
           echo "{\"include\":$sorted}"
