@@ -8,3 +8,6 @@ solutions:
 
   - name: "SurveysSolution"
     order: 20
+
+  - name: "FakeSolution"
+    order: 99

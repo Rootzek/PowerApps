@@ -11,6 +11,42 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        solution: []
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install yq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+          pip install yq
+
+      - name: Read manifest
+        id: manifest
+        run: |
+          solutions=$(yq -r '.solutions[].name' manifests/qa/release.yml | jq -R -s -c 'split("\n")[:-1]')
+          echo "solutions=$solutions" >> $GITHUB_OUTPUT
+
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          echo "matrix=$(echo '${{ steps.manifest.outputs.solutions }}')" >> $GITHUB_OUTPUT
+
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+
+  deploy-solutions:
+    needs: deploy
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        solution: ${{ fromJson(needs.deploy.outputs.matrix) }}
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -18,38 +54,19 @@ jobs:
       - name: Install Power Platform Tools
         uses: microsoft/powerplatform-actions/actions-install@v1
 
-      # Deploy MainSolution
-      - name: Pack MainSolution
+      - name: Pack ${{ matrix.solution }}
         uses: microsoft/powerplatform-actions/pack-solution@v1
         with:
-          solution-folder: solutions/MainSolution/src
-          solution-file: out/MainSolution_managed.zip
+          solution-folder: solutions/${{ matrix.solution }}/src
+          solution-file: out/${{ matrix.solution }}_managed.zip
           solution-type: Managed
 
-      - name: Import MainSolution to QA
+      - name: Import ${{ matrix.solution }} to QA
         uses: microsoft/powerplatform-actions/import-solution@v1
         with:
           environment-url: ${{ vars.QA_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/MainSolution_managed.zip
-          force-overwrite: true
-          publish-changes: true
-
-      # Deploy SurveysSolution
-      - name: Pack SurveysSolution
-        uses: microsoft/powerplatform-actions/pack-solution@v1
-        with:
-          solution-folder: solutions/SurveysSolution/src
-          solution-file: out/SurveysSolution_managed.zip
-          solution-type: Managed
-
-      - name: Import SurveysSolution to QA
-        uses: microsoft/powerplatform-actions/import-solution@v1
-        with:
-          environment-url: ${{ vars.QA_ENV_URL }}
-          app-id: ${{ secrets.PP_CLIENT_ID }}
-          tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/SurveysSolution_managed.zip
+          solution-file: out/${{ matrix.solution }}_managed.zip
           force-overwrite: true
           publish-changes: true
