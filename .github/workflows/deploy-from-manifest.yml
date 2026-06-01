@@ -6,6 +6,11 @@ on:
       environment:
         description: "Target environment"
         required: true
+        type: choice
+        options:
+          - qa
+          - prep
+          - prod
         default: "qa"
 
 permissions:
