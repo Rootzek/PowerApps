@@ -6,12 +6,12 @@ on:
       environment:
         description: "Target environment"
         required: true
+        default: "qa"
         type: choice
         options:
           - qa
           - prep
           - prod
-        default: "qa"
 
 permissions:
   contents: read
@@ -41,12 +41,12 @@ jobs:
           echo "Sorted matrix:"
           echo "{\"include\":$sorted}"
 
-  deploy-solutions:
+  build-artifacts:
     needs: build-matrix
     runs-on: ubuntu-latest
 
     strategy:
-      max-parallel: 1
+      fail-fast: true
       matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
 
     steps:
@@ -57,6 +57,7 @@ jobs:
         uses: microsoft/powerplatform-actions/actions-install@v1
 
       - name: Validate folder exists
+        shell: bash
         run: |
           test -d "solutions/${{ matrix.name }}/src" || {
             echo "Folder not found: solutions/${{ matrix.name }}/src"
@@ -70,10 +71,40 @@ jobs:
           solution-file: out/${{ matrix.name }}_managed.zip
           solution-type: Managed
 
-      - name: Import ${{ matrix.name }} to ${{ inputs.environment }}
+      - name: Upload artifact for ${{ matrix.name }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: managed-${{ matrix.name }}
+          path: out/${{ matrix.name }}_managed.zip
+          if-no-files-found: error
+
+  deploy-solutions:
+    needs:
+      - build-matrix
+      - build-artifacts
+    runs-on: ubuntu-latest
+
+    strategy:
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      - name: Download artifact for ${{ matrix.name }}
+        uses: actions/download-artifact@v4
+        with:
+          name: managed-${{ matrix.name }}
+          path: out
+
+      - name: Import ${{ matrix.name }} to target environment
         uses: microsoft/powerplatform-actions/import-solution@v1
         with:
-          environment-url: ${{ vars[format('{0}_ENV_URL', inputs.environment) ] }}
+          environment-url: ${{ vars[format('{0}_ENV_URL', inputs.environment)] }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
           solution-file: out/${{ matrix.name }}_managed.zip
