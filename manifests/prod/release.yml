@@ -1,1 +1,9 @@
+release:
+  name: "prep-release-1"
+  target: "prep"
 
+solutions:
+  - name: "MainSolution"
+    order: 10
+  - name: "SurveysSolution"
+    order: 20

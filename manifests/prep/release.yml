@@ -1,1 +1,9 @@
+release:
+  name: "prod-release-1"
+  target: "prod"
 
+solutions:
+  - name: "MainSolution"
+    order: 10
+  - name: "SurveysSolution"
+    order: 20
