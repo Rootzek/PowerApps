@@ -1,0 +1,10 @@
+release:
+  name: "release-2026-05-23"
+  target: "promotion"
+
+solutions:
+  - name: "MainSolution"
+    order: 10
+
+  - name: "SurveysSolution"
+    order: 20

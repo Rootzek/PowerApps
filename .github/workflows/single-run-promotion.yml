@@ -1,0 +1,192 @@
+name: single-run-promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_prep:
+        description: "Promote to PREP after QA"
+        required: true
+        type: boolean
+        default: true
+      deploy_prod:
+        description: "Promote to PROD after PREP"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.manifest.outputs.matrix }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Install yq + jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+          pip install yq
+
+      - name: Read and sort release manifest
+        id: manifest
+        shell: bash
+        run: |
+          FILE="manifests/releases/current.yml"
+          MATRIX_JSON=$(yq '.solutions' "$FILE" | jq -c '{include: sort_by(.order)}')
+          echo "matrix=$MATRIX_JSON" >> "$GITHUB_OUTPUT"
+          echo "Generated matrix:"
+          echo "$MATRIX_JSON"
+
+  build-artifacts:
+    needs: build-matrix
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      - name: Validate folder exists
+        shell: bash
+        run: |
+          test -d "solutions/${{ matrix.name }}/src" || {
+            echo "Folder not found: solutions/${{ matrix.name }}/src"
+            exit 1
+          }
+
+      - name: Pack ${{ matrix.name }} as managed
+        uses: microsoft/powerplatform-actions/pack-solution@v1
+        with:
+          solution-folder: solutions/${{ matrix.name }}/src
+          solution-file: out/${{ matrix.name }}_managed.zip
+          solution-type: Managed
+
+      - name: Upload artifact for ${{ matrix.name }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: managed-${{ matrix.name }}
+          path: out/${{ matrix.name }}_managed.zip
+          if-no-files-found: error
+
+  deploy-qa:
+    needs:
+      - build-matrix
+      - build-artifacts
+    runs-on: ubuntu-latest
+    environment: qa
+
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      - name: Download artifact for ${{ matrix.name }}
+        uses: actions/download-artifact@v7
+        with:
+          name: managed-${{ matrix.name }}
+          path: out
+
+      - name: Import ${{ matrix.name }} to QA
+        uses: microsoft/powerplatform-actions/import-solution@v1
+        with:
+          environment-url: ${{ vars.QA_ENV_URL }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-file: out/${{ matrix.name }}_managed.zip
+          force-overwrite: true
+          publish-changes: true
+
+  deploy-prep:
+    if: ${{ inputs.deploy_prep }}
+    needs:
+      - build-matrix
+      - build-artifacts
+      - deploy-qa
+    runs-on: ubuntu-latest
+    environment: prep
+
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      - name: Download artifact for ${{ matrix.name }}
+        uses: actions/download-artifact@v7
+        with:
+          name: managed-${{ matrix.name }}
+          path: out
+
+      - name: Import ${{ matrix.name }} to PREP
+        uses: microsoft/powerplatform-actions/import-solution@v1
+        with:
+          environment-url: ${{ vars.PREP_ENV_URL }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-file: out/${{ matrix.name }}_managed.zip
+          force-overwrite: true
+          publish-changes: true
+
+  deploy-prod:
+    if: ${{ inputs.deploy_prod }}
+    needs:
+      - build-matrix
+      - build-artifacts
+      - deploy-qa
+      - deploy-prep
+    runs-on: ubuntu-latest
+    environment: prod
+
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      - name: Download artifact for ${{ matrix.name }}
+        uses: actions/download-artifact@v7
+        with:
+          name: managed-${{ matrix.name }}
+          path: out
+
+      - name: Import ${{ matrix.name }} to PROD
+        uses: microsoft/powerplatform-actions/import-solution@v1
+        with:
+          environment-url: ${{ vars.PROD_ENV_URL }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-file: out/${{ matrix.name }}_managed.zip
+          force-overwrite: true
+          publish-changes: true

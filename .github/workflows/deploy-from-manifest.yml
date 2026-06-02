@@ -96,7 +96,7 @@ jobs:
         uses: microsoft/powerplatform-actions/actions-install@v1
 
       - name: Download artifact for ${{ matrix.name }}
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: managed-${{ matrix.name }}
           path: out
