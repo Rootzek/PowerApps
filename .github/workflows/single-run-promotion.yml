@@ -3,6 +3,10 @@ name: single-run-promotion
 on:
   workflow_dispatch:
     inputs:
+      version:
+        description: "Release version (ex: 1.0.0.0)"
+        required: true
+        default: "1.0.0.0"
       deploy_prep:
         description: "Promote to PREP after QA"
         required: true
@@ -12,7 +16,7 @@ on:
         description: "Promote to PROD after PREP"
         required: true
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read
@@ -27,6 +31,9 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
 
       - name: Install yq + jq
         run: |
@@ -71,20 +78,65 @@ jobs:
         uses: microsoft/powerplatform-actions/pack-solution@v1
         with:
           solution-folder: solutions/${{ matrix.name }}/src
-          solution-file: out/${{ matrix.name }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ inputs.version }}_managed.zip
           solution-type: Managed
 
       - name: Upload artifact for ${{ matrix.name }}
         uses: actions/upload-artifact@v7
         with:
-          name: managed-${{ matrix.name }}
-          path: out/${{ matrix.name }}_managed.zip
+          name: managed-${{ matrix.name }}-${{ inputs.version }}
+          path: out/${{ matrix.name }}_${{ inputs.version }}_managed.zip
           if-no-files-found: error
+
+create-release-tag:
+    needs:
+      - build-matrix
+      - build-artifacts
+    runs-on: ubuntu-latest
+    outputs:
+      tag_name: ${{ steps.tag.outputs.tag_name }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Create and push Git tag if missing
+        id: tag
+        shell: bash
+        run: |
+          TAG="v${{ inputs.version }}"
+          echo "tag_name=$TAG" >> "$GITHUB_OUTPUT"
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists locally."
+          else
+            git config user.name "github-actions"
+            git config user.email "actions@github.com"
+            git tag -a "$TAG" -m "Release $TAG"
+          fi
+
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists on origin."
+          else
+            git push origin "$TAG"
+          fi
+
+      - name: Create GitHub release if missing
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ inputs.version }}
+          name: Release v${{ inputs.version }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
 
   deploy-qa:
     needs:
       - build-matrix
       - build-artifacts
+      - create-release-tag
     runs-on: ubuntu-latest
     environment: qa
 
@@ -103,7 +155,7 @@ jobs:
       - name: Download artifact for ${{ matrix.name }}
         uses: actions/download-artifact@v7
         with:
-          name: managed-${{ matrix.name }}
+          name: managed-${{ matrix.name }}-${{ inputs.version }}
           path: out
 
       - name: Import ${{ matrix.name }} to QA
@@ -112,7 +164,7 @@ jobs:
           environment-url: ${{ vars.QA_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/${{ matrix.name }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ inputs.version }}_managed.zip
           force-overwrite: true
           publish-changes: true
 
@@ -121,6 +173,7 @@ jobs:
     needs:
       - build-matrix
       - build-artifacts
+      - create-release-tag
       - deploy-qa
     runs-on: ubuntu-latest
     environment: prep
@@ -140,7 +193,7 @@ jobs:
       - name: Download artifact for ${{ matrix.name }}
         uses: actions/download-artifact@v7
         with:
-          name: managed-${{ matrix.name }}
+          name: managed-${{ matrix.name }}-${{ inputs.version }}
           path: out
 
       - name: Import ${{ matrix.name }} to PREP
@@ -149,7 +202,7 @@ jobs:
           environment-url: ${{ vars.PREP_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/${{ matrix.name }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ inputs.version }}_managed.zip
           force-overwrite: true
           publish-changes: true
 
@@ -158,6 +211,7 @@ jobs:
     needs:
       - build-matrix
       - build-artifacts
+      - create-release-tag
       - deploy-qa
       - deploy-prep
     runs-on: ubuntu-latest
@@ -178,7 +232,7 @@ jobs:
       - name: Download artifact for ${{ matrix.name }}
         uses: actions/download-artifact@v7
         with:
-          name: managed-${{ matrix.name }}
+          name: managed-${{ matrix.name }}-${{ inputs.version }}
           path: out
 
       - name: Import ${{ matrix.name }} to PROD
@@ -187,6 +241,6 @@ jobs:
           environment-url: ${{ vars.PROD_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/${{ matrix.name }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ inputs.version }}_managed.zip
           force-overwrite: true
           publish-changes: true
