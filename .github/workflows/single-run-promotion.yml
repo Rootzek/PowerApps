@@ -4,9 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (ex: 1.0.0.0)"
+        description: "Release version (ex: 2026-01-01-v1)"
         required: true
-        default: "1.0.0.0"
+        default: "2026-01-01-v1"
+      deploy_qa:
+        description: "Promote to QA"
+        required: true
+        type: boolean
+        default: true
       deploy_prep:
         description: "Promote to PREP after QA"
         required: true
@@ -33,7 +38,6 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
 
       - name: Install yq + jq
         run: |
@@ -133,6 +137,7 @@ jobs:
           prerelease: false
 
   deploy-qa:
+    if: ${{ inputs.deploy_qa }}
     needs:
       - build-matrix
       - build-artifacts
