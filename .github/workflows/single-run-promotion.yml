@@ -7,6 +7,11 @@ on:
         description: "Release version (ex: 2026-01-01-v1)"
         required: true
         default: "2026-01-01-v1"
+      deploy_dev:
+        description: "Promote to DEV"
+        required: true
+        type: boolean
+        default: true
       deploy_qa:
         description: "Promote to QA"
         required: true
@@ -78,6 +83,12 @@ jobs:
             exit 1
           }
 
+      - name: Set solution version
+        run: |
+          pac solution version \
+            --solution-folder solutions/${{ matrix.name }}/src \
+            --strategy Solution
+
       - name: Pack ${{ matrix.name }} as managed
         uses: microsoft/powerplatform-actions/pack-solution@v1
         with:
@@ -136,12 +147,50 @@ jobs:
           draft: false
           prerelease: false
 
+  deploy-dev:
+    if: ${{ inputs.deploy_dev }}
+    needs:
+      - build-matrix
+      - build-artifacts
+      - create-release-tag
+    runs-on: ubuntu-latest
+    environment: dev
+
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      - name: Download artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: managed-${{ matrix.name }}-${{ inputs.version }}
+          path: out
+
+      - name: Import ${{ matrix.name }} to DEV
+        uses: microsoft/powerplatform-actions/import-solution@v1
+        with:
+          environment-url: ${{ vars.DEV_ENV_URL }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-file: out/${{ matrix.name }}_${{ inputs.version }}_managed.zip
+          force-overwrite: true
+          publish-changes: true
+
   deploy-qa:
     if: ${{ inputs.deploy_qa }}
     needs:
       - build-matrix
       - build-artifacts
       - create-release-tag
+      - deploy-dev
     runs-on: ubuntu-latest
     environment: qa
 
@@ -179,6 +228,7 @@ jobs:
       - build-matrix
       - build-artifacts
       - create-release-tag
+      - deploy-dev
       - deploy-qa
     runs-on: ubuntu-latest
     environment: prep
@@ -217,6 +267,7 @@ jobs:
       - build-matrix
       - build-artifacts
       - create-release-tag
+      - deploy-dev
       - deploy-qa
       - deploy-prep
     runs-on: ubuntu-latest
