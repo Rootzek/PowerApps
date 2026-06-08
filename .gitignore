@@ -1,0 +1,75 @@
+########################################
+# Power Platform - Solutions
+########################################
+
+# NEVER commit solution packages (.zip artifacts)
+*.zip
+
+# Pipeline output folders (build artifacts)
+out/
+dist/
+build/
+release/
+
+########################################
+# Power Platform - Canvas Apps
+########################################
+
+# If still using legacy binary apps (avoid if possible)
+*.msapp
+
+# Optional: if using git integration (keep YAML, ignore temp exports)
+*.msapp.json
+
+########################################
+# Power Platform CLI / temp
+########################################
+
+# PAC CLI temp files
+*.tmp
+*.temp
+
+# Local export artifacts
+*.bak
+
+########################################
+# Logs
+########################################
+
+*.log
+
+########################################
+# OS files
+########################################
+
+.DS_Store
+Thumbs.db
+
+########################################
+# IDE / Editor files
+########################################
+
+.vscode/
+.idea/
+
+# Visual Studio / .NET leftovers (common in PP repos)
+bin/
+obj/
+*.user
+*.suo
+
+########################################
+# Node / tooling (if you add scripts later)
+########################################
+
+node_modules/
+
+########################################
+# Credentials / secrets (very important)
+########################################
+
+.env
+*.env
+*.secret
+*.key
+*.pfx
