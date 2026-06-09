@@ -86,7 +86,7 @@ jobs:
       - name: Set solution version
         shell: bash
         run: |
-          ~/.dotnet/tools/pac solution version \
+          $POWERPLATFORMTOOLS_PACPATH solution version \
             --solution-folder solutions/${{ matrix.name }}/src \
             --strategy Solution
 
