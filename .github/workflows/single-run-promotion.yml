@@ -84,10 +84,10 @@ jobs:
           }
 
       - name: Set solution version
-        run: |
-          pac solution version \
-            --solution-folder solutions/${{ matrix.name }}/src \
-            --strategy Solution
+        uses: microsoft/powerplatform-actions/update-solution-version@v1
+        with:
+          solution-file: solutions/${{ matrix.name }}/src/Other/Solution.xml
+          strategy: Solution
 
       - name: Pack ${{ matrix.name }} as managed
         uses: microsoft/powerplatform-actions/pack-solution@v1
