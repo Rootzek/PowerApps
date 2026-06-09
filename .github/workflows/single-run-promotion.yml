@@ -87,7 +87,7 @@ jobs:
         shell: bash
         run: |
           $POWERPLATFORMTOOLS_PACPATH solution version \
-            --solution-folder solutions/${{ matrix.name }}/src \
+            --solutionPath solutions/${{ matrix.name }}/src \
             --strategy Solution
 
       - name: Pack ${{ matrix.name }} as managed
