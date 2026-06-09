@@ -84,9 +84,11 @@ jobs:
           }
 
       - name: Set solution version
-        uses: microsoft/powerplatform-actions/update-solution-version@v1
-        with:
-          strategy: Solution
+        shell: bash
+        run: |
+          ~/.dotnet/tools/pac solution version \
+            --solution-folder solutions/${{ matrix.name }}/src \
+            --strategy Solution
 
       - name: Pack ${{ matrix.name }} as managed
         uses: microsoft/powerplatform-actions/pack-solution@v1
