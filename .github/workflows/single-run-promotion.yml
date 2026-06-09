@@ -7,6 +7,15 @@ on:
         description: "Release version (ex: 2026-01-01-v1)"
         required: true
         default: "2026-01-01-v1"
+      build-version:
+        description: 'Build version for solution'
+        required: true
+      revision-version:
+        description: 'Revision version for solution'
+        required: true
+      patch-version:
+        description: 'Patch version for solution'
+        required: true
       deploy_dev:
         description: "Promote to DEV"
         required: true
@@ -86,7 +95,9 @@ jobs:
       - name: Set solution version
         uses: microsoft/powerplatform-actions/update-solution-version@v1
         with:
-          solution-file: solutions/${{ matrix.name }}/src/Other/Solution.xml
+          build-version: ${{ inputs.build-version }}
+          revision-version: ${{ inputs.revision-version }}
+          patch-version: ${{ inputs.patch-version }}
           strategy: Solution
 
       - name: Pack ${{ matrix.name }} as managed
