@@ -1,32 +1,10 @@
 name: single-run-promotion
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Release version (ex: 2026-01-01-v1)"
-        required: true
-        default: "2026-01-01-v1"
-      deploy_dev:
-        description: "Promote to DEV"
-        required: true
-        type: boolean
-        default: true
-      deploy_qa:
-        description: "Promote to QA"
-        required: true
-        type: boolean
-        default: true
-      deploy_prep:
-        description: "Promote to PREP after QA"
-        required: true
-        type: boolean
-        default: true
-      deploy_prod:
-        description: "Promote to PROD after PREP"
-        required: true
-        type: boolean
-        default: true
 
 permissions:
   contents: write
@@ -64,6 +42,9 @@ jobs:
     needs: build-matrix
     runs-on: ubuntu-latest
 
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
     strategy:
       fail-fast: true
       matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
@@ -71,9 +52,22 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v6
+        with:
+            fetch-depth: 0
 
-      - name: Install Power Platform Tools
-        uses: microsoft/powerplatform-actions/actions-install@v1
+      - name: Detect changes for ${{ matrix.name }}
+        id: detect_changes
+        shell: bash
+        run: |
+          echo "Checking changes for solution: ${{ matrix.name }}"
+
+          if git diff --quiet origin/main HEAD -- solutions/${{ matrix.name }}/src; then
+            echo "No changes detected"
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected"
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
 
       - name: Validate folder exists
         shell: bash
@@ -84,24 +78,57 @@ jobs:
           }
 
       - name: Set solution version
+        if: steps.detect_changes.outputs.changed == 'true'
         shell: bash
         run: |
           $POWERPLATFORMTOOLS_PACPATH solution version \
             --solutionPath solutions/${{ matrix.name }}/src \
             --strategy Solution
 
+      - name: Log version skip
+        if: steps.detect_changes.outputs.changed == 'false'
+        run: echo "Skipping version bump for ${{ matrix.name }} (no changes)"
+
+      - name: Generate dynamic version
+        id: version
+        shell: bash
+        run: |
+          DATE=$(date +'%Y-%m-%d')
+
+          echo "Today's date: $DATE"
+
+          # Get existing tags for today
+          TAGS=$(git tag | grep "^v$DATE-v" || true)
+
+          if [ -z "$TAGS" ]; then
+            NEXT_VERSION=1
+          else
+            # Extract version numbers and find max
+            MAX=$(echo "$TAGS" | sed -E "s/v$DATE-v([0-9]+)/\1/" | sort -n | tail -n 1)
+            NEXT_VERSION=$((MAX + 1))
+          fi
+
+          VERSION="$DATE-v$NEXT_VERSION"
+
+          echo "Generated version: $VERSION"
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
       - name: Pack ${{ matrix.name }} as managed
         uses: microsoft/powerplatform-actions/pack-solution@v1
         with:
           solution-folder: solutions/${{ matrix.name }}/src
-          solution-file: out/${{ matrix.name }}_${{ inputs.version }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ steps.version.outputs.version }}_managed.zip
           solution-type: Managed
 
       - name: Upload artifact for ${{ matrix.name }}
         uses: actions/upload-artifact@v7
         with:
-          name: managed-${{ matrix.name }}-${{ inputs.version }}
-          path: out/${{ matrix.name }}_${{ inputs.version }}_managed.zip
+          name: managed-${{ matrix.name }}-${{ steps.version.outputs.version }}
+          path: out/${{ matrix.name }}_${{ steps.version.outputs.version }}_managed.zip
           if-no-files-found: error
 
   create-release-tag:
@@ -122,7 +149,7 @@ jobs:
         id: tag
         shell: bash
         run: |
-          TAG="v${{ inputs.version }}"
+          TAG="v${{ needs.build-artifacts.outputs.version }}"
           echo "tag_name=$TAG" >> "$GITHUB_OUTPUT"
 
           if git rev-parse "$TAG" >/dev/null 2>&1; then
@@ -142,14 +169,13 @@ jobs:
       - name: Create GitHub release if missing
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: v${{ inputs.version }}
-          name: Release v${{ inputs.version }}
+          tag_name: v${{ needs.build-artifacts.outputs.version }}
+          name: Release v${{ needs.build-artifacts.outputs.version }}
           generate_release_notes: true
           draft: false
           prerelease: false
 
   deploy-dev:
-    if: ${{ inputs.deploy_dev }}
     needs:
       - build-matrix
       - build-artifacts
@@ -172,7 +198,7 @@ jobs:
       - name: Download artifact
         uses: actions/download-artifact@v7
         with:
-          name: managed-${{ matrix.name }}-${{ inputs.version }}
+          name: managed-${{ matrix.name }}-${{ needs.build-artifacts.outputs.version }}
           path: out
 
       - name: Import ${{ matrix.name }} to DEV
@@ -181,12 +207,11 @@ jobs:
           environment-url: ${{ vars.DEV_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/${{ matrix.name }}_${{ inputs.version }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ needs.build-artifacts.outputs.version }}_managed.zip
           force-overwrite: true
           publish-changes: true
 
   deploy-qa:
-    if: ${{ inputs.deploy_qa }}
     needs:
       - build-matrix
       - build-artifacts
@@ -210,7 +235,7 @@ jobs:
       - name: Download artifact for ${{ matrix.name }}
         uses: actions/download-artifact@v7
         with:
-          name: managed-${{ matrix.name }}-${{ inputs.version }}
+          name: managed-${{ matrix.name }}-${{ needs.build-artifacts.outputs.version }}
           path: out
 
       - name: Import ${{ matrix.name }} to QA
@@ -219,12 +244,11 @@ jobs:
           environment-url: ${{ vars.QA_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/${{ matrix.name }}_${{ inputs.version }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ needs.build-artifacts.outputs.version }}_managed.zip
           force-overwrite: true
           publish-changes: true
 
   deploy-prep:
-    if: ${{ inputs.deploy_prep }}
     needs:
       - build-matrix
       - build-artifacts
@@ -249,7 +273,7 @@ jobs:
       - name: Download artifact for ${{ matrix.name }}
         uses: actions/download-artifact@v7
         with:
-          name: managed-${{ matrix.name }}-${{ inputs.version }}
+          name: managed-${{ matrix.name }}-${{ needs.build-artifacts.outputs.version }}
           path: out
 
       - name: Import ${{ matrix.name }} to PREP
@@ -258,12 +282,11 @@ jobs:
           environment-url: ${{ vars.PREP_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/${{ matrix.name }}_${{ inputs.version }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ needs.build-artifacts.outputs.version }}_managed.zip
           force-overwrite: true
           publish-changes: true
 
   deploy-prod:
-    if: ${{ inputs.deploy_prod }}
     needs:
       - build-matrix
       - build-artifacts
@@ -289,7 +312,7 @@ jobs:
       - name: Download artifact for ${{ matrix.name }}
         uses: actions/download-artifact@v7
         with:
-          name: managed-${{ matrix.name }}-${{ inputs.version }}
+          name: managed-${{ matrix.name }}-${{ needs.build-artifacts.outputs.version }}
           path: out
 
       - name: Import ${{ matrix.name }} to PROD
@@ -298,6 +321,6 @@ jobs:
           environment-url: ${{ vars.PROD_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/${{ matrix.name }}_${{ inputs.version }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ needs.build-artifacts.outputs.version }}_managed.zip
           force-overwrite: true
           publish-changes: true
