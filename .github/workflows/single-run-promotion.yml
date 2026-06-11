@@ -149,7 +149,7 @@ jobs:
         id: tag
         shell: bash
         run: |
-          TAG="v${{ needs.build-artifacts.outputs.version }}"
+          TAG="${{ needs.build-artifacts.outputs.version }}"
           echo "tag_name=$TAG" >> "$GITHUB_OUTPUT"
 
           if git rev-parse "$TAG" >/dev/null 2>&1; then
