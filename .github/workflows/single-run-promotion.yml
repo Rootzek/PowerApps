@@ -77,42 +77,51 @@ jobs:
             exit 1
           }
 
-      - name: Set solution version
-        if: steps.detect_changes.outputs.changed == 'true'
-        shell: bash
-        run: |
-          $POWERPLATFORMTOOLS_PACPATH solution version \
-            --solutionPath solutions/${{ matrix.name }}/src \
-            --strategy Solution
-
-      - name: Log version skip
-        if: steps.detect_changes.outputs.changed == 'false'
-        run: echo "Skipping version bump for ${{ matrix.name }} (no changes)"
-
       - name: Generate dynamic version
         id: version
         shell: bash
         run: |
-          DATE=$(date +'%Y-%m-%d')
+          YEAR=$(date +'%Y')
+          DAY_OF_YEAR=$(date +'%j')
 
-          echo "Today's date: $DATE"
+          echo "Year: $YEAR"
+          echo "Day of year: $DAY_OF_YEAR"
 
-          # Get existing tags for today
-          TAGS=$(git tag | grep "^v$DATE-v" || true)
+          # Remove leading zeros (001 → 1)
+          DAY_OF_YEAR=$((10#$DAY_OF_YEAR))
+
+          # Get today's releases
+          TAG_PREFIX="v$YEAR.$DAY_OF_YEAR."
+
+          TAGS=$(git tag | grep "^$TAG_PREFIX" || true)
 
           if [ -z "$TAGS" ]; then
-            NEXT_VERSION=1
+            RELEASE=1
           else
-            # Extract version numbers and find max
-            MAX=$(echo "$TAGS" | sed -E "s/v$DATE-v([0-9]+)/\1/" | sort -n | tail -n 1)
-            NEXT_VERSION=$((MAX + 1))
+            MAX=$(echo "$TAGS" | sed -E "s/v$YEAR\.$DAY_OF_YEAR\.([0-9]+)\..*/\1/" | sort -n | tail -n 1)
+            RELEASE=$((MAX + 1))
           fi
 
-          VERSION="$DATE-v$NEXT_VERSION"
+          HOTFIX=0
+
+          VERSION="$YEAR.$DAY_OF_YEAR.$RELEASE.$HOTFIX"
 
           echo "Generated version: $VERSION"
 
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "year=$YEAR" >> $GITHUB_OUTPUT
+          echo "day=$DAY_OF_YEAR" >> $GITHUB_OUTPUT
+          echo "release=$RELEASE" >> $GITHUB_OUTPUT
+          echo "hotfix=$HOTFIX" >> $GITHUB_OUTPUT
+
+      - name: Set full solution version
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.year }}.${{ steps.version.outputs.day }}.${{ steps.version.outputs.release }}.${{ steps.version.outputs.hotfix }}"
+
+          echo "Setting solution version to $VERSION"
+
+          sed -i "s/<Version>.*<\/Version>/<Version>$VERSION<\/Version>/" solutions/${{ matrix.name }}/src/Other/Solution.xml
 
       - name: Install Power Platform Tools
         uses: microsoft/powerplatform-actions/actions-install@v1
