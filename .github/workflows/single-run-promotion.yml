@@ -13,6 +13,7 @@ permissions:
 jobs:
   build-matrix:
     runs-on: ubuntu-latest
+
     outputs:
       matrix: ${{ steps.manifest.outputs.matrix }}
 
@@ -43,7 +44,7 @@ jobs:
     runs-on: ubuntu-latest
 
     outputs:
-      version: ${{ steps.version.outputs.version }}
+      version: ${{ steps.solution_version.outputs.version }}
 
     strategy:
       fail-fast: true
@@ -114,10 +115,37 @@ jobs:
           echo "release=$RELEASE" >> $GITHUB_OUTPUT
           echo "hotfix=$HOTFIX" >> $GITHUB_OUTPUT
 
+      - name: Determine version for ${{ matrix.name }}
+        id: solution_version
+        shell: bash
+        run: |
+          echo "Checking if solution changed..."
+
+          if git diff --quiet HEAD^ HEAD -- solutions/${{ matrix.name }}/src; then
+            echo "No changes detected"
+
+            LAST_COMMIT=$(git log -n 1 --pretty=format:%H -- solutions/${{ matrix.name }}/src)
+            LAST_TAG=$(git tag --contains $LAST_COMMIT | head -n 1)
+
+            if [ -z "$LAST_TAG" ]; then
+              echo "No previous tag found, defaulting to base version"
+              VERSION="${{ steps.version.outputs.version }}"
+            else
+              VERSION=${LAST_TAG#v}
+              echo "Reusing version $VERSION"
+            fi
+
+          else
+            echo "Changes detected"
+            VERSION="${{ steps.version.outputs.version }}"
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Set full solution version
         shell: bash
         run: |
-          VERSION="${{ steps.version.outputs.year }}.${{ steps.version.outputs.day }}.${{ steps.version.outputs.release }}.${{ steps.version.outputs.hotfix }}"
+          VERSION="${{ steps.solution_version.outputs.year }}.${{ steps.solution_version.outputs.day }}.${{ steps.solution_version.outputs.release }}.${{ steps.solution_version.outputs.hotfix }}"
 
           echo "Setting solution version to $VERSION"
 
@@ -130,14 +158,14 @@ jobs:
         uses: microsoft/powerplatform-actions/pack-solution@v1
         with:
           solution-folder: solutions/${{ matrix.name }}/src
-          solution-file: out/${{ matrix.name }}_${{ steps.version.outputs.version }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ steps.solution_version.outputs.version }}_managed.zip
           solution-type: Managed
 
       - name: Upload artifact for ${{ matrix.name }}
         uses: actions/upload-artifact@v7
         with:
-          name: managed-${{ matrix.name }}-${{ steps.version.outputs.version }}
-          path: out/${{ matrix.name }}_${{ steps.version.outputs.version }}_managed.zip
+          name: managed-${{ matrix.name }}-${{ steps.solution_version.outputs.version }}
+          path: out/${{ matrix.name }}_${{ steps.solution_version.outputs.version }}_managed.zip
           if-no-files-found: error
 
   create-release-tag:
@@ -145,6 +173,7 @@ jobs:
       - build-matrix
       - build-artifacts
     runs-on: ubuntu-latest
+
     outputs:
       tag_name: ${{ steps.tag.outputs.tag_name }}
 
