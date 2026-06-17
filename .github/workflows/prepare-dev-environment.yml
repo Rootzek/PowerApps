@@ -65,7 +65,7 @@ jobs:
             --environment "${{ env.ENV_URL }}" \
             --applicationId "${{ secrets.PP_CLIENT_ID }}" \
             --tenant "${{ secrets.PP_TENANT_ID }}" \
-            --clientSecret "${{ secrets.PP_CLIENT_SECRET }}"
+            --githubFederated
 
       - name: Reset environment
         shell: bash
