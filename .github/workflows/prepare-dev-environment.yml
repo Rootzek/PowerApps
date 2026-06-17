@@ -36,15 +36,19 @@ jobs:
         run: |
           if [ "${{ inputs.environment }}" == "DEV_USER1" ]; then
             echo "ENV_URL=${{ vars.DEV_USER1_ENV_URL }}" >> $GITHUB_ENV
+            echo "Using ${{ vars.DEV_USER1_ENV_URL }}"
           elif [ "${{ inputs.environment }}" == "DEV_USER2" ]; then
             echo "ENV_URL=${{ vars.DEV_USER2_ENV_URL }}" >> $GITHUB_ENV
+            echo "Using ${{ vars.DEV_USER2_ENV_URL }}"
           fi
 
       - name: Install Power Platform Tools
         uses: microsoft/powerplatform-actions/actions-install@v1
 
       - name: Authenticate to Power Platform
+        shell: bash
         run: |
+          export PATH="$HOME/.powerplatform/tools:$PATH"
           pac auth create \
             --url "${{ env.ENV_URL }}" \
             --client-id "${{ secrets.PP_CLIENT_ID }}" \
@@ -54,6 +58,7 @@ jobs:
       - name: Reset environment
         shell: bash
         run: |
+          export PATH="$HOME/.powerplatform/tools:$PATH"
           echo "Resetting environment: ${{ env.ENV_URL }}"
           pac admin reset \
             --environment "${{ env.ENV_URL }}" \
@@ -62,6 +67,7 @@ jobs:
       - name: Pack solutions
         shell: bash
         run: |
+          export PATH="$HOME/.powerplatform/tools:$PATH"
           mkdir -p out
           cd solutions
           for solution_dir in */; do
@@ -70,21 +76,18 @@ jobs:
             pac solution pack \
               --zipfile "../out/${solution_name}_unmanaged.zip" \
               --solutionSourceFolder "$solution_dir/src" \
-              --processCanvasApps true
+              --packageType Unmanaged
           done
 
       - name: Import solutions to ${{ inputs.environment }}
-        shell: bash
-        run: |
-          echo "Importing solutions to ${{ env.ENV_URL }}"
-          cd out
-          for solution_zip in *_unmanaged.zip; do
-            echo "Importing: $solution_zip"
-            pac solution import \
-              --path "$solution_zip" \
-              --environment "${{ env.ENV_URL }}" \
-              --force
-          done
+        uses: microsoft/powerplatform-actions/import-solution@v1
+        with:
+          environment-url: ${{ env.ENV_URL }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-file: out/*.zip
+          force-overwrite: true
+          publish-changes: true
 
       - name: Create feature branch
         shell: bash
