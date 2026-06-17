@@ -8,8 +8,8 @@ on:
         required: true
         type: choice
         options:
-          - DEV_USER1
-          - DEV_USER2
+          - dev_user1
+          - dev_user2
       branch_name:
         description: 'Feature branch name to create'
         required: true
@@ -47,10 +47,10 @@ jobs:
       - name: Set environment variables
         shell: bash
         run: |
-          if [ "${{ inputs.environment }}" == "DEV_USER1" ]; then
+          if [ "${{ inputs.environment }}" == "dev_user1" ]; then
             echo "ENV_URL=${{ vars.DEV_USER1_ENV_URL }}" >> $GITHUB_ENV
             echo "Using ${{ vars.DEV_USER1_ENV_URL }}"
-          elif [ "${{ inputs.environment }}" == "DEV_USER2" ]; then
+          elif [ "${{ inputs.environment }}" == "dev_user2" ]; then
             echo "ENV_URL=${{ vars.DEV_USER2_ENV_URL }}" >> $GITHUB_ENV
             echo "Using ${{ vars.DEV_USER2_ENV_URL }}"
           fi
