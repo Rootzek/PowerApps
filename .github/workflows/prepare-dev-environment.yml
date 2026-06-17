@@ -31,6 +31,19 @@ jobs:
           ref: main
           fetch-depth: 0
 
+      - name: Validate branch does not exist
+        shell: bash
+        run: |
+          if git rev-parse "origin/${{ inputs.branch_name }}" >/dev/null 2>&1; then
+            echo "Error: Branch '${{ inputs.branch_name }}' already exists on origin"
+            exit 1
+          fi
+          if git rev-parse "${{ inputs.branch_name }}" >/dev/null 2>&1; then
+            echo "Error: Branch '${{ inputs.branch_name }}' already exists locally"
+            exit 1
+          fi
+          echo "Branch '${{ inputs.branch_name }}' is available"
+
       - name: Set environment variables
         shell: bash
         run: |
@@ -48,8 +61,7 @@ jobs:
       - name: Authenticate to Power Platform
         shell: bash
         run: |
-          export PATH="$HOME/.powerplatform/tools:$PATH"
-          pac auth create \
+          "$POWERPLATFORMTOOLS_PACPATH" auth create \
             --url "${{ env.ENV_URL }}" \
             --client-id "${{ secrets.PP_CLIENT_ID }}" \
             --tenant-id "${{ secrets.PP_TENANT_ID }}" \
@@ -58,22 +70,20 @@ jobs:
       - name: Reset environment
         shell: bash
         run: |
-          export PATH="$HOME/.powerplatform/tools:$PATH"
           echo "Resetting environment: ${{ env.ENV_URL }}"
-          pac admin reset \
+          "$POWERPLATFORMTOOLS_PACPATH" admin reset \
             --environment "${{ env.ENV_URL }}" \
             --force
 
       - name: Pack solutions
         shell: bash
         run: |
-          export PATH="$HOME/.powerplatform/tools:$PATH"
           mkdir -p out
           cd solutions
           for solution_dir in */; do
             solution_name="${solution_dir%/}"
             echo "Packing solution: $solution_name"
-            pac solution pack \
+            "$POWERPLATFORMTOOLS_PACPATH" solution pack \
               --zipfile "../out/${solution_name}_unmanaged.zip" \
               --solutionSourceFolder "$solution_dir/src" \
               --packageType Unmanaged
