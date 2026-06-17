@@ -1,0 +1,106 @@
+name: prepare-dev-environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target dev environment to prepare'
+        required: true
+        type: choice
+        options:
+          - DEV_USER1
+          - DEV_USER2
+      branch_name:
+        description: 'Feature branch name to create'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  prepare-dev:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set environment variables
+        shell: bash
+        run: |
+          if [ "${{ inputs.environment }}" == "DEV_USER1" ]; then
+            echo "ENV_URL=${{ vars.DEV_USER1_ENV_URL }}" >> $GITHUB_ENV
+          elif [ "${{ inputs.environment }}" == "DEV_USER2" ]; then
+            echo "ENV_URL=${{ vars.DEV_USER2_ENV_URL }}" >> $GITHUB_ENV
+          fi
+
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      - name: Authenticate to Power Platform
+        run: |
+          pac auth create \
+            --url "${{ env.ENV_URL }}" \
+            --client-id "${{ secrets.PP_CLIENT_ID }}" \
+            --tenant-id "${{ secrets.PP_TENANT_ID }}" \
+            --client-secret "${{ secrets.PP_CLIENT_SECRET }}"
+
+      - name: Reset environment
+        shell: bash
+        run: |
+          echo "Resetting environment: ${{ env.ENV_URL }}"
+          pac admin reset \
+            --environment "${{ env.ENV_URL }}" \
+            --force
+
+      - name: Pack solutions
+        shell: bash
+        run: |
+          mkdir -p out
+          cd solutions
+          for solution_dir in */; do
+            solution_name="${solution_dir%/}"
+            echo "Packing solution: $solution_name"
+            pac solution pack \
+              --zipfile "../out/${solution_name}_unmanaged.zip" \
+              --solutionSourceFolder "$solution_dir/src" \
+              --processCanvasApps true
+          done
+
+      - name: Import solutions to ${{ inputs.environment }}
+        shell: bash
+        run: |
+          echo "Importing solutions to ${{ env.ENV_URL }}"
+          cd out
+          for solution_zip in *_unmanaged.zip; do
+            echo "Importing: $solution_zip"
+            pac solution import \
+              --path "$solution_zip" \
+              --environment "${{ env.ENV_URL }}" \
+              --force
+          done
+
+      - name: Create feature branch
+        shell: bash
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git checkout -b "${{ inputs.branch_name }}"
+          git push origin "${{ inputs.branch_name }}"
+
+      - name: Output summary
+        shell: bash
+        run: |
+          echo "## Environment Preparation Complete ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dev Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL:** ${{ env.ENV_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch Created:** ${{ inputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Instance Reset:** ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **Solutions Imported:** ✅" >> $GITHUB_STEP_SUMMARY
