@@ -67,6 +67,13 @@ jobs:
             --tenant "${{ secrets.PP_TENANT_ID }}" \
             --githubFederated
 
+      - name: Register service principal with Power Platform
+        shell: bash
+        run: |
+          echo "Registering service principal with Power Platform (if not already registered)"
+          "$POWERPLATFORMTOOLS_PACPATH" admin create-service-principal \
+            --environment "${{ env.ENV_URL }}" || true
+
       - name: Reset environment
         shell: bash
         run: |
