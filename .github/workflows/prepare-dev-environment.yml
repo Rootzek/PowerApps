@@ -72,8 +72,7 @@ jobs:
         run: |
           echo "Resetting environment: ${{ env.ENV_URL }}"
           "$POWERPLATFORMTOOLS_PACPATH" admin reset \
-            --environment "${{ env.ENV_URL }}" \
-            --force
+            --environment "${{ env.ENV_URL }}"
 
       - name: Pack solutions
         shell: bash
