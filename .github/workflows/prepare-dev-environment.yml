@@ -20,9 +20,46 @@ permissions:
   id-token: write
 
 jobs:
-  prepare-dev:
+  build-matrix:
+    runs-on: ubuntu-latest
+
+    outputs:
+      matrix: ${{ steps.manifest.outputs.matrix }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Install yq + jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+          pip install yq
+
+      - name: Read and sort release manifest
+        id: manifest
+        shell: bash
+        run: |
+          FILE="manifests/releases/current.yml"
+          MATRIX_JSON='{"include": []}'
+
+          while IFS=$'\t' read -r NAME ORDER; do
+            MATRIX_JSON=$(jq --arg name "$NAME" --argjson order "$ORDER" '.include += [{name: $name, order: $order}]' <<< "$MATRIX_JSON")
+          done < <(yq -o=json '.solutions | sort_by(.order)[] | [.name, .order] | @tsv' "$FILE")
+
+          echo "matrix=$MATRIX_JSON" >> "$GITHUB_OUTPUT"
+          echo "Generated matrix:"
+          echo "$MATRIX_JSON"
+
+  prepare-env:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
+
+    outputs:
+      env_url: ${{ steps.set-env.outputs.env_url }}
 
     steps:
       - name: Checkout main branch
@@ -45,15 +82,16 @@ jobs:
           echo "Branch '${{ inputs.branch_name }}' is available"
 
       - name: Set environment variables
+        id: set-env
         shell: bash
         run: |
           if [ "${{ inputs.environment }}" == "dev_user1" ]; then
-            echo "ENV_URL=${{ vars.DEV_USER1_ENV_URL }}" >> $GITHUB_ENV
-            echo "Using ${{ vars.DEV_USER1_ENV_URL }}"
+            ENV_URL="${{ vars.DEV_USER1_ENV_URL }}"
           elif [ "${{ inputs.environment }}" == "dev_user2" ]; then
-            echo "ENV_URL=${{ vars.DEV_USER2_ENV_URL }}" >> $GITHUB_ENV
-            echo "Using ${{ vars.DEV_USER2_ENV_URL }}"
+            ENV_URL="${{ vars.DEV_USER2_ENV_URL }}"
           fi
+          echo "env_url=$ENV_URL" >> $GITHUB_OUTPUT
+          echo "Using $ENV_URL"
 
       - name: Install Power Platform Tools
         uses: microsoft/powerplatform-actions/actions-install@v1
@@ -62,7 +100,7 @@ jobs:
         shell: bash
         run: |
           "$POWERPLATFORMTOOLS_PACPATH" auth create \
-            --environment "${{ env.ENV_URL }}" \
+            --environment "${{ steps.set-env.outputs.env_url }}" \
             --applicationId "${{ secrets.PP_CLIENT_ID }}" \
             --tenant "${{ secrets.PP_TENANT_ID }}" \
             --githubFederated
@@ -70,35 +108,101 @@ jobs:
       - name: Reset environment
         shell: bash
         run: |
-          echo "Resetting environment: ${{ env.ENV_URL }}"
+          echo "Resetting environment: ${{ steps.set-env.outputs.env_url }}"
           "$POWERPLATFORMTOOLS_PACPATH" admin reset \
-            --environment "${{ env.ENV_URL }}"
+            --environment "${{ steps.set-env.outputs.env_url }}"
 
-      - name: Pack solutions
+  pack-solutions:
+    needs: build-matrix
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate folder exists
         shell: bash
         run: |
-          mkdir -p out
-          cd solutions
-          for solution_dir in */; do
-            solution_name="${solution_dir%/}"
-            echo "Packing solution: $solution_name"
-            "$POWERPLATFORMTOOLS_PACPATH" solution pack \
-              --zipfile "../out/${solution_name}_unmanaged.zip" \
-              --folder "$solution_dir/src" \
-              --packagetype Unmanaged
-          done
+          test -d "solutions/${{ matrix.name }}/src" || {
+            echo "Folder not found: solutions/${{ matrix.name }}/src"
+            exit 1
+          }
 
-      - name: Import solutions to ${{ inputs.environment }}
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      - name: Pack ${{ matrix.name }} as unmanaged
+        uses: microsoft/powerplatform-actions/pack-solution@v1
+        with:
+          solution-folder: solutions/${{ matrix.name }}/src
+          solution-file: out/${{ matrix.name }}_unmanaged.zip
+          solution-type: Unmanaged
+
+      - name: Upload artifact for ${{ matrix.name }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: solution-${{ matrix.name }}
+          path: out/${{ matrix.name }}_unmanaged.zip
+          if-no-files-found: error
+
+  import-solutions:
+    needs:
+      - build-matrix
+      - prepare-env
+      - pack-solutions
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      - name: Download ${{ matrix.name }} artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: solution-${{ matrix.name }}
+          path: out
+
+      - name: Import ${{ matrix.name }} to ${{ inputs.environment }}
         uses: microsoft/powerplatform-actions/import-solution@v1
         with:
-          environment-url: ${{ env.ENV_URL }}
+          environment-url: ${{ needs.prepare-env.outputs.env_url }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/*.zip
+          solution-file: out/${{ matrix.name }}_unmanaged.zip
           force-overwrite: true
           publish-changes: true
 
-      - name: Create feature branch
+  create-feature-branch:
+    needs:
+      - prepare-env
+      - import-solutions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Create and push feature branch
         shell: bash
         run: |
           git config user.name "github-actions"
@@ -112,7 +216,7 @@ jobs:
           echo "## Environment Preparation Complete ✅" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Dev Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **URL:** ${{ env.ENV_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL:** ${{ needs.prepare-env.outputs.env_url }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch Created:** ${{ inputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Instance Reset:** ✅" >> $GITHUB_STEP_SUMMARY
           echo "- **Solutions Imported:** ✅" >> $GITHUB_STEP_SUMMARY
