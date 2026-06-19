@@ -36,21 +36,25 @@ jobs:
         run: |
           FILE="manifests/releases/current.yml"
           MATRIX_JSON=$(yq '.solutions' "$FILE" | jq -c '{include: sort_by(.order)}')
+
+          # Filter matrix to only include solutions that have changed
+          FILTERED_MATRIX='{"include": []}'
           ANY_CHANGED=false
 
-          # Check if any solutions have changed
           while IFS=$'\n' read -r item; do
             NAME=$(echo "$item" | jq -r '.name')
+            ORDER=$(echo "$item" | jq -r '.order')
+            
             if ! git diff --quiet origin/main HEAD -- "solutions/$NAME/src"; then
+              FILTERED_MATRIX=$(jq --arg name "$NAME" --argjson order "$ORDER" '.include += [{name: $name, order: $order}]' <<< "$FILTERED_MATRIX")
               ANY_CHANGED=true
-              break
             fi
           done < <(jq -c '.include[]' <<< "$MATRIX_JSON")
 
-          echo "matrix=$MATRIX_JSON" >> "$GITHUB_OUTPUT"
+          echo "matrix=$FILTERED_MATRIX" >> "$GITHUB_OUTPUT"
           echo "any_changed=$ANY_CHANGED" >> "$GITHUB_OUTPUT"
           echo "Generated matrix:"
-          echo "$MATRIX_JSON"
+          echo "$FILTERED_MATRIX"
           echo "Any changed solutions: $ANY_CHANGED"
 
   build-artifacts:
