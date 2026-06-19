@@ -35,15 +35,17 @@ jobs:
         shell: bash
         run: |
           FILE="manifests/releases/current.yml"
-          MATRIX_JSON='{"include": []}'
+          MATRIX_JSON=$(yq '.solutions' "$FILE" | jq -c '{include: sort_by(.order)}')
           ANY_CHANGED=false
 
-          while IFS=$'\t' read -r NAME ORDER; do
+          # Check if any solutions have changed
+          while IFS=$'\n' read -r item; do
+            NAME=$(echo "$item" | jq -r '.name')
             if ! git diff --quiet origin/main HEAD -- "solutions/$NAME/src"; then
-              MATRIX_JSON=$(jq --arg name "$NAME" --argjson order "$ORDER" '.include += [{name: $name, order: $order}]' <<< "$MATRIX_JSON")
               ANY_CHANGED=true
+              break
             fi
-          done < <(yq -o=json '.solutions | sort_by(.order)[] | [.name, .order] | @tsv' "$FILE")
+          done < <(jq -c '.include[]' <<< "$MATRIX_JSON")
 
           echo "matrix=$MATRIX_JSON" >> "$GITHUB_OUTPUT"
           echo "any_changed=$ANY_CHANGED" >> "$GITHUB_OUTPUT"
