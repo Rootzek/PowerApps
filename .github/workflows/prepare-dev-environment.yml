@@ -11,7 +11,7 @@ on:
           - dev_user1
           - dev_user2
       branch_name:
-        description: 'Feature branch name to create'
+        description: 'Feature branch name to create. The actual branch will be created as <environment>/<branch_name> if not already prefixed.'
         required: true
         type: string
 
@@ -56,6 +56,8 @@ jobs:
 
     outputs:
       env_url: ${{ steps.set-env.outputs.env_url }}
+      env_id: ${{ steps.set-env.outputs.env_id }}
+      branch_name: ${{ steps.validate-branch.outputs.branch_name }}
 
     steps:
       - name: Checkout main branch
@@ -65,17 +67,35 @@ jobs:
           fetch-depth: 0
 
       - name: Validate branch does not exist
+        id: validate-branch
         shell: bash
         run: |
-          if git rev-parse "origin/${{ inputs.branch_name }}" >/dev/null 2>&1; then
-            echo "Error: Branch '${{ inputs.branch_name }}' already exists on origin"
+          git fetch --prune origin +refs/heads/*:refs/remotes/origin/*
+
+          if [[ "${{ inputs.branch_name }}" == "${{ inputs.environment }}/*" ]]; then
+            FULL_BRANCH_NAME="${{ inputs.branch_name }}"
+          else
+            FULL_BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_name }}"
+          fi
+
+          if git rev-parse --verify "origin/${FULL_BRANCH_NAME}" >/dev/null 2>&1; then
+            echo "Error: Branch '${FULL_BRANCH_NAME}' already exists on origin"
             exit 1
           fi
-          if git rev-parse "${{ inputs.branch_name }}" >/dev/null 2>&1; then
-            echo "Error: Branch '${{ inputs.branch_name }}' already exists locally"
+
+          if git rev-parse --verify "${FULL_BRANCH_NAME}" >/dev/null 2>&1; then
+            echo "Error: Branch '${FULL_BRANCH_NAME}' already exists locally"
             exit 1
           fi
-          echo "Branch '${{ inputs.branch_name }}' is available"
+
+          if git branch -r --list "origin/${{ inputs.environment }}" | grep -q . || \
+             git branch -r --list "origin/${{ inputs.environment }}/*" | grep -q .; then
+            echo "Error: Dev environment '${{ inputs.environment }}' is already in use by an existing branch"
+            exit 1
+          fi
+
+          echo "Branch '${FULL_BRANCH_NAME}' is available"
+          echo "branch_name=${FULL_BRANCH_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Set environment variables
         id: set-env
@@ -83,10 +103,13 @@ jobs:
         run: |
           if [ "${{ inputs.environment }}" == "dev_user1" ]; then
             ENV_URL="${{ vars.DEV_USER1_ENV_URL }}"
+            ENV_ID="${{ vars.DEV_USER1_ENV_ID }}"
           elif [ "${{ inputs.environment }}" == "dev_user2" ]; then
             ENV_URL="${{ vars.DEV_USER2_ENV_URL }}"
+            ENV_ID="${{ vars.DEV_USER2_ENV_ID }}"
           fi
           echo "env_url=$ENV_URL" >> $GITHUB_OUTPUT
+          echo "env_id=$ENV_ID" >> $GITHUB_OUTPUT
           echo "Using $ENV_URL"
 
       - name: Install Power Platform Tools
@@ -205,8 +228,7 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git checkout -b "${{ inputs.branch_name }}"
-          git push origin "${{ inputs.branch_name }}"
+          BRANCH_NAME="${{ needs.prepare-env.outputs.branch_name }}"
 
       - name: Output summary
         shell: bash
@@ -214,7 +236,12 @@ jobs:
           echo "## Environment Preparation Complete ✅" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Dev Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **URL:** ${{ needs.prepare-env.outputs.env_url }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch Created:** ${{ inputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment URL:** ${{ needs.prepare-env.outputs.env_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch Created:** ${{ needs.prepare-env.outputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Instance Reset:** ✅" >> $GITHUB_STEP_SUMMARY
           echo "- **Solutions Imported:** ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **Next Steps:**" >> $GITHUB_STEP_SUMMARY
+          echo "-- git remote update && git checkout ${{ needs.prepare-env.outputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "-- https://make.powerapps.com/environments/${{ needs.prepare-env.outputs.env_id }}/home" >> $GITHUB_STEP_SUMMARY
+          echo "-- git add . && git commit -m 'Update Message' && git push origin ${{ needs.prepare-env.outputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "-- Create your Pull Request and merge it" >> $GITHUB_STEP_SUMMARY
