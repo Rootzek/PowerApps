@@ -229,6 +229,16 @@ jobs:
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           BRANCH_NAME="${{ needs.prepare-env.outputs.branch_name }}"
+          if [ -z "$BRANCH_NAME" ]; then
+            echo "Error: computed branch name is empty"
+            exit 1
+          fi
+          echo "Creating branch '$BRANCH_NAME'"
+          git checkout -b "$BRANCH_NAME"
+          git push --set-upstream origin "$BRANCH_NAME"
+          echo "Branch created and pushed: $BRANCH_NAME"
+          git branch --show-current
+          git ls-remote --heads origin "$BRANCH_NAME"
 
       - name: Output summary
         shell: bash
