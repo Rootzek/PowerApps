@@ -82,8 +82,12 @@ jobs:
 
             echo "Replacing repository sources for $s"
             rm -rf "solutions/$s/src" || true
-            mkdir -p "solutions/$s"
-            cp -R "out/${s}_unpacked/"* "solutions/$s/src/"
+            mkdir -p "solutions/$s/src"
+            if [ -d "out/${s}_unpacked" ]; then
+              cp -R "out/${s}_unpacked/." "solutions/$s/src/"
+            else
+              echo "Warning: unpack folder out/${s}_unpacked not found" >&2
+            fi
           done
 
       - name: Commit and push changes
