@@ -1,0 +1,122 @@
+name: capture-dev-changes
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Dev environment to capture from'
+        required: true
+        type: choice
+        options:
+          - dev_user1
+          - dev_user2
+      branch_suffix:
+        description: 'Suffix for the branch name. Final branch will be <environment>/<branch_suffix>'
+        required: true
+        type: string
+      solutions:
+        description: 'Comma-separated solution names to export (e.g. MainSolution,SurveysSolution)'
+        required: true
+        type: string
+      commit_message:
+        description: 'Optional custom commit message. If empty a default message will be used.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set environment variables
+        id: set-env
+        shell: bash
+        run: |
+          if [ "${{ inputs.environment }}" = "dev_user1" ]; then
+            ENV_URL="${{ vars.DEV_USER1_ENV_URL }}"
+            ENV_ID="${{ vars.DEV_USER1_ENV_ID }}"
+          else
+            ENV_URL="${{ vars.DEV_USER2_ENV_URL }}"
+            ENV_ID="${{ vars.DEV_USER2_ENV_ID }}"
+          fi
+          echo "env_url=$ENV_URL" >> "$GITHUB_OUTPUT"
+          echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      - name: Authenticate to Power Platform
+        shell: bash
+        run: |
+          "$POWERPLATFORMTOOLS_PACPATH" auth create \
+            --environment "${{ steps.set-env.outputs.env_url }}" \
+            --applicationId "${{ secrets.PP_CLIENT_ID }}" \
+            --tenant "${{ secrets.PP_TENANT_ID }}" \
+            --githubFederated
+
+      - name: Export and unpack solutions
+        id: export
+        shell: bash
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra SOLS <<< "${{ inputs.solutions }}"
+          rm -rf out || true
+          mkdir -p out
+          for s in "${SOLS[@]}"; do
+            s=$(echo "$s" | xargs)
+            echo "Processing solution: $s"
+            mkdir -p "out/$s"
+            echo "Exporting $s"
+            "$POWERPLATFORMTOOLS_PACPATH" solution export --name "$s" --path "out/${s}.zip" --managed false
+            echo "Unpacking $s"
+            "$POWERPLATFORMTOOLS_PACPATH" solution unpack --zipfile "out/${s}.zip" --folder "out/${s}_unpacked" --packagetype Unmanaged
+
+            echo "Replacing repository sources for $s"
+            rm -rf "solutions/$s/src" || true
+            mkdir -p "solutions/$s"
+            cp -R "out/${s}_unpacked/"* "solutions/$s/src/"
+          done
+
+      - name: Commit and push changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          BRANCH="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git fetch --prune origin
+          if git ls-remote --heads origin "$BRANCH" | grep -q .; then
+            echo "Error: remote branch '$BRANCH' already exists. Aborting to avoid clobbering." >&2
+            exit 1
+          fi
+          git checkout -b "$BRANCH"
+          git add solutions || true
+          if git diff --staged --quiet; then
+            echo "No changes detected after export. Nothing to commit." 
+          else
+            COMMIT_MSG="${{ inputs.commit_message }}"
+            if [ -z "$COMMIT_MSG" ]; then
+              COMMIT_MSG="Bring changes from ${{ inputs.environment }} for: ${{ inputs.solutions }}"
+            fi
+            git commit -m "$COMMIT_MSG"
+            git push --set-upstream origin "$BRANCH"
+            echo "Pushed branch: $BRANCH"
+            echo "Branch: $BRANCH" >> $GITHUB_STEP_SUMMARY
+            echo "Environment: ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+            echo "Environment URL: ${{ steps.set-env.outputs.env_url }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          echo "Export finished. Check changes and create a PR from the pushed branch if applicable."
