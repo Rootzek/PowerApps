@@ -253,5 +253,6 @@ jobs:
           echo "- **Next Steps:**" >> $GITHUB_STEP_SUMMARY
           echo "-- git remote update && git checkout ${{ needs.prepare-env.outputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
           echo "-- https://make.powerapps.com/environments/${{ needs.prepare-env.outputs.env_id }}/home" >> $GITHUB_STEP_SUMMARY
+          echo "-- Do your changes directly in the solution you want to modify" >> $GITHUB_STEP_SUMMARY
           echo "-- git add . && git commit -m 'Update Message' && git push origin ${{ needs.prepare-env.outputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
           echo "-- Create your Pull Request and merge it" >> $GITHUB_STEP_SUMMARY
