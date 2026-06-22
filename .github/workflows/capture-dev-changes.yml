@@ -28,8 +28,30 @@ permissions:
   id-token: write
 
 jobs:
-  capture:
+  build-matrix:
     runs-on: ubuntu-latest
+
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+
+    steps:
+      - name: Build solution matrix
+        id: build
+        shell: bash
+        run: |
+          MATRIX_JSON=$(jq -n --arg solutions "${{ inputs.solutions }}" -c '{include: ($solutions | split(",") | map(gsub("^\\s+|\\s+$";"") | {name: .}))}')
+          echo "matrix=$MATRIX_JSON" >> "$GITHUB_OUTPUT"
+          echo "Generated matrix:"
+          echo "$MATRIX_JSON"
+
+  export-and-unpack:
+    needs: build-matrix
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
 
     steps:
       - name: Checkout repository
@@ -51,61 +73,95 @@ jobs:
           echo "env_url=$ENV_URL" >> "$GITHUB_OUTPUT"
           echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Install Power Platform Tools
-        uses: microsoft/powerplatform-actions/actions-install@v1
+      - name: Export ${{ matrix.name }} unmanaged solution
+        uses: microsoft/powerplatform-actions/export-solution@v1
+        with:
+          environment-url: ${{ steps.set-env.outputs.env_url }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-name: ${{ matrix.name }}
+          solution-output-file: out/${{ matrix.name }}_unmanaged.zip
+          managed: false
 
-      - name: Authenticate to Power Platform
+      - name: Export ${{ matrix.name }} managed solution
+        uses: microsoft/powerplatform-actions/export-solution@v1
+        with:
+          environment-url: ${{ steps.set-env.outputs.env_url }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-name: ${{ matrix.name }}
+          solution-output-file: out/${{ matrix.name }}_managed.zip
+          managed: true
+
+      - name: Unpack ${{ matrix.name }} solution
+        uses: microsoft/powerplatform-actions/unpack-solution@v1
+        with:
+          solution-file: out/${{ matrix.name }}_unmanaged.zip
+          solution-folder: solutions/${{ matrix.name }}/src
+          solution-type: Unmanaged
+          overwrite-files: true
+
+      - name: Upload ${{ matrix.name }} artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: solutions-unpacked-${{ matrix.name }}
+          path: solutions/${{ matrix.name }}/src
+          if-no-files-found: error
+
+  commit-and-push:
+    needs: export-and-unpack
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download all solution artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artifact-downloads
+
+      - name: Restore all solutions to repository
         shell: bash
         run: |
-          "$POWERPLATFORMTOOLS_PACPATH" auth create \
-            --environment "${{ steps.set-env.outputs.env_url }}" \
-            --applicationId "${{ secrets.PP_CLIENT_ID }}" \
-            --tenant "${{ secrets.PP_TENANT_ID }}" \
-            --githubFederated
-
-      - name: Export and unpack solutions
-        id: export
-        shell: bash
-        run: |
-          set -euo pipefail
-          IFS=',' read -ra SOLS <<< "${{ inputs.solutions }}"
-          rm -rf out || true
-          mkdir -p out
-          for s in "${SOLS[@]}"; do
-            s=$(echo "$s" | xargs)
-            echo "Processing solution: $s"
-            mkdir -p "out/$s"
-            echo "Exporting $s"
-            "$POWERPLATFORMTOOLS_PACPATH" solution export --name "$s" --path "out/${s}.zip" --managed false
-            echo "Unpacking $s"
-            "$POWERPLATFORMTOOLS_PACPATH" solution unpack --zipfile "out/${s}.zip" --folder "out/${s}_unpacked" --packagetype Unmanaged
-
-            echo "Replacing repository sources for $s"
-            rm -rf "solutions/$s/src" || true
-            mkdir -p "solutions/$s/src"
-            if [ -d "out/${s}_unpacked" ]; then
-              cp -R "out/${s}_unpacked/." "solutions/$s/src/"
-            else
-              echo "Warning: unpack folder out/${s}_unpacked not found" >&2
-            fi
+          find artifact-downloads -type d -name "solutions-unpacked-*" | while read dir; do
+            cp -R "$dir/." solutions/
           done
+
+      - name: Set environment variables
+        id: set-env
+        shell: bash
+        run: |
+          if [ "${{ inputs.environment }}" = "dev_user1" ]; then
+            ENV_ID="${{ vars.DEV_USER1_ENV_ID }}"
+          else
+            ENV_ID="${{ vars.DEV_USER2_ENV_ID }}"
+          fi
+          echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
 
       - name: Commit and push changes
         shell: bash
         run: |
-          set -euo pipefail
           BRANCH="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git fetch --prune origin
+
+          # Checkout existing branch or create new one
           if git ls-remote --heads origin "$BRANCH" | grep -q .; then
-            echo "Error: remote branch '$BRANCH' already exists. Aborting to avoid clobbering." >&2
-            exit 1
+            echo "Branch '$BRANCH' already exists. Checking out and pulling latest."
+            git checkout "$BRANCH"
+            git pull origin "$BRANCH"
+          else
+            echo "Creating new branch '$BRANCH'."
+            git checkout -b "$BRANCH"
           fi
-          git checkout -b "$BRANCH"
-          git add solutions || true
+
+          git add solutions/ || true
           if git diff --staged --quiet; then
-            echo "No changes detected after export. Nothing to commit." 
+            echo "No changes detected after export. Nothing to commit."
           else
             COMMIT_MSG="${{ inputs.commit_message }}"
             if [ -z "$COMMIT_MSG" ]; then
@@ -114,13 +170,16 @@ jobs:
             git commit -m "$COMMIT_MSG"
             git push --set-upstream origin "$BRANCH"
             echo "Pushed branch: $BRANCH"
-            echo "Branch: $BRANCH" >> $GITHUB_STEP_SUMMARY
-            echo "Environment: ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
-            echo "Environment URL: ${{ steps.set-env.outputs.env_url }}" >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Summary
         if: always()
         shell: bash
         run: |
-          echo "Export finished. Check changes and create a PR from the pushed branch if applicable."
+          BRANCH="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
+          echo "## Capture Complete ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dev Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** $BRANCH" >> $GITHUB_STEP_SUMMARY
+          echo "- **Solutions:** ${{ inputs.solutions }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment ID:** ${{ steps.set-env.outputs.env_id }}" >> $GITHUB_STEP_SUMMARY
