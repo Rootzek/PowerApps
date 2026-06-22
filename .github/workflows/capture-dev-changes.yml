@@ -73,6 +73,9 @@ jobs:
           echo "env_url=$ENV_URL" >> "$GITHUB_OUTPUT"
           echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
 
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
       - name: Export ${{ matrix.name }} unmanaged solution
         uses: microsoft/powerplatform-actions/export-solution@v1
         with:
@@ -98,7 +101,7 @@ jobs:
         with:
           solution-file: out/${{ matrix.name }}_unmanaged.zip
           solution-folder: solutions/${{ matrix.name }}/src
-          solution-type: Unmanaged
+          solution-type: Both
           overwrite-files: true
 
       - name: Upload ${{ matrix.name }} artifact
