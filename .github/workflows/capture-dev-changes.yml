@@ -132,19 +132,29 @@ jobs:
           echo "Listing artifact-downloads:" && ls -la artifact-downloads || true
           for dir in artifact-downloads/*; do
             [ -d "$dir" ] || continue
-            echo "Processing artifact dir: $dir"
-            # If the artifact contains a top-level 'solutions' folder, copy its contents
+            NAME=$(basename "$dir")
+            NAME=${NAME#solutions-unpacked-}
+            echo "Processing artifact dir: $dir (solution name: $NAME)"
+
+            # If the artifact contains a top-level 'solutions' folder, sync its contents into solutions/
             if [ -d "$dir/solutions" ]; then
               echo "Found nested 'solutions' folder; syncing its contents into solutions/"
               rsync -a "$dir/solutions/" solutions/ || cp -R "$dir/solutions/." solutions/
-            # If the artifact contains a 'src' folder (uploaded from solutions/<name>/src), place into solutions/<name>/src
+
+            # If the artifact contains a root 'src' folder, treat it as solution source and copy into solutions/<name>/src
             elif [ -d "$dir/src" ]; then
-              NAME=$(basename "$dir")
               echo "Found 'src' folder in artifact; copying into solutions/$NAME/src"
               mkdir -p "solutions/$NAME/src"
               rsync -a "$dir/src/" "solutions/$NAME/src/" || cp -R "$dir/src/." "solutions/$NAME/src/"
+
+            # If the artifact root looks like solution XML source, copy it into solutions/<name>/src
+            elif [ -d "$dir/Other" ] || [ -d "$dir/AppModules" ] || [ -d "$dir/AppModuleSiteMaps" ] || [ -d "$dir/Entities" ]; then
+              echo "Found solution source root; copying artifact root into solutions/$NAME/src"
+              mkdir -p "solutions/$NAME/src"
+              rsync -a "$dir/" "solutions/$NAME/src/" || cp -R "$dir/." "solutions/$NAME/src/"
+
             else
-              echo "No nested 'solutions' or 'src' folder detected; copying artifact root into solutions/"
+              echo "No nested 'solutions', 'src', or solution source root detected; copying artifact root into solutions/"
               rsync -a "$dir/" solutions/ || cp -R "$dir/." solutions/
             fi
           done
