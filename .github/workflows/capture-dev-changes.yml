@@ -99,7 +99,7 @@ jobs:
       - name: Unpack ${{ matrix.name }} solution
         uses: microsoft/powerplatform-actions/unpack-solution@v1
         with:
-          solution-file: out/${{ matrix.name }}_unmanaged.zip
+          solution-file: out/${{ matrix.name }}.zip
           solution-folder: solutions/${{ matrix.name }}/src
           solution-type: Both
           overwrite-files: true
