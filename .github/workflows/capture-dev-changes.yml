@@ -162,7 +162,18 @@ jobs:
             git checkout -b "$BRANCH"
           fi
 
-          git add solutions/ || true
+          # Diagnostics: show current branch, recent commits, and workspace status
+          echo "Current branch:" $(git rev-parse --abbrev-ref HEAD)
+          echo "Recent commits:" && git --no-pager log -n 5 --oneline || true
+          echo "Listing solutions directory:" && ls -la solutions || true
+          echo "Find some files under solutions (first 200):" && find solutions -type f | sed -n '1,200p' || true
+          echo "Git status (porcelain):" && git status --porcelain --untracked-files=all || true
+          echo "Untracked files (git ls-files --others --exclude-standard):" && git ls-files --others --exclude-standard || true
+          echo "Ignored files (git ls-files --ignored --exclude-standard):" && git ls-files --ignored --exclude-standard || true
+
+          # Stage all changes (including deletions) under solutions
+          git add -A solutions/ || true
+
           if git diff --staged --quiet; then
             echo "No changes detected after export. Nothing to commit."
           else
