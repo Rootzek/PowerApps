@@ -129,9 +129,31 @@ jobs:
       - name: Restore all solutions to repository
         shell: bash
         run: |
-          find artifact-downloads -type d -name "solutions-unpacked-*" | while read dir; do
-            cp -R "$dir/." solutions/
+          echo "Listing artifact-downloads:" && ls -la artifact-downloads || true
+          for dir in artifact-downloads/*; do
+            [ -d "$dir" ] || continue
+            echo "Processing artifact dir: $dir"
+            # If the artifact contains a top-level 'solutions' folder, copy its contents
+            if [ -d "$dir/solutions" ]; then
+              echo "Found nested 'solutions' folder; syncing its contents into solutions/"
+              rsync -a "$dir/solutions/" solutions/ || cp -R "$dir/solutions/." solutions/
+            # If the artifact contains a 'src' folder (uploaded from solutions/<name>/src), place into solutions/<name>/src
+            elif [ -d "$dir/src" ]; then
+              NAME=$(basename "$dir")
+              echo "Found 'src' folder in artifact; copying into solutions/$NAME/src"
+              mkdir -p "solutions/$NAME/src"
+              rsync -a "$dir/src/" "solutions/$NAME/src/" || cp -R "$dir/src/." "solutions/$NAME/src/"
+            else
+              echo "No nested 'solutions' or 'src' folder detected; copying artifact root into solutions/"
+              rsync -a "$dir/" solutions/ || cp -R "$dir/." solutions/
+            fi
           done
+
+          # Post-restore: show any new or changed files under solutions compared to HEAD
+          echo "Comparing solutions/ to HEAD (showing created/modified files):"
+          git fetch --no-tags --prune origin || true
+          git ls-files --others --exclude-standard --directory | sed -n '1,200p' || true
+          git --no-pager status --porcelain=2 --untracked-files=all | sed -n '1,200p' || true
 
       - name: Set environment variables
         id: set-env
