@@ -155,7 +155,7 @@ jobs:
           # Checkout existing branch or create new one
           if git ls-remote --heads origin "$BRANCH" | grep -q .; then
             echo "Branch '$BRANCH' already exists. Checking out and pulling latest."
-            git checkout "$BRANCH"
+            git checkout --track "origin/$BRANCH"
             git pull origin "$BRANCH"
           else
             echo "Creating new branch '$BRANCH'."
