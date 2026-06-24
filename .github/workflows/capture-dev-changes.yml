@@ -147,15 +147,22 @@ jobs:
               mkdir -p "solutions/$NAME/src"
               rsync -a "$dir/src/" "solutions/$NAME/src/" || cp -R "$dir/src/." "solutions/$NAME/src/"
 
-            # If the artifact root looks like solution XML source, copy it into solutions/<name>/src
-            elif [ -d "$dir/Other" ] || [ -d "$dir/AppModules" ] || [ -d "$dir/AppModuleSiteMaps" ] || [ -d "$dir/Entities" ]; then
+            # If the artifact contains a nested solution name folder with 'src', copy that into solutions/$NAME/src
+            elif [ -d "$dir/$NAME/src" ]; then
+              echo "Found nested '$NAME/src' folder in artifact; copying into solutions/$NAME/src"
+              mkdir -p "solutions/$NAME/src"
+              rsync -a "$dir/$NAME/src/" "solutions/$NAME/src/" || cp -R "$dir/$NAME/src/." "solutions/$NAME/src/"
+
+            # If the artifact root looks like solution XML source, copy it into solutions/$NAME/src
+            elif [ -d "$dir/Other" ] || [ -d "$dir/AppModules" ] || [ -d "$dir/AppModuleSiteMaps" ] || [ -d "$dir/Entities" ] || [ -d "$dir/Account" ]; then
               echo "Found solution source root; copying artifact root into solutions/$NAME/src"
               mkdir -p "solutions/$NAME/src"
               rsync -a "$dir/" "solutions/$NAME/src/" || cp -R "$dir/." "solutions/$NAME/src/"
 
             else
-              echo "No nested 'solutions', 'src', or solution source root detected; copying artifact root into solutions/"
-              rsync -a "$dir/" solutions/ || cp -R "$dir/." solutions/
+              echo "Defaulting to copying artifact root into solutions/$NAME/src"
+              mkdir -p "solutions/$NAME/src"
+              rsync -a "$dir/" "solutions/$NAME/src/" || cp -R "$dir/." "solutions/$NAME/src/"
             fi
           done
 
