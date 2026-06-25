@@ -46,7 +46,7 @@ jobs:
             ORDER=$(echo "$item" | jq -r '.order')
             
             if ! git diff --quiet HEAD~1 HEAD -- "solutions/$NAME/src"; then
-              FILTERED_MATRIX=$(jq --arg name "$NAME" --argjson order "$ORDER" '.include += [{name: $name, order: $order}]' <<< "$FILTERED_MATRIX")
+              FILTERED_MATRIX=$(jq -c --arg name "$NAME" --argjson order "$ORDER" '.include += [{name: $name, order: $order}]' <<< "$FILTERED_MATRIX")
               ANY_CHANGED=true
             fi
           done < <(jq -c '.include[]' <<< "$MATRIX_JSON")
