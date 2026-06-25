@@ -81,9 +81,7 @@
                   <labels>
                     <label description="New Section" languagecode="1033" />
                   </labels>
-                  <rows>
-                    <row />
-                  </rows>
+                  <rows />
                 </section>
               </sections>
             </column>
@@ -212,7 +210,6 @@
                     <label description="Whatever Section" languagecode="1033" />
                   </labels>
                   <rows>
-                    <row />
                     <row>
                       <cell id="{74a29905-3f15-4437-998f-3c5a82b51001}" locklevel="0" colspan="1" rowspan="1" ordinalvalue="10000">
                         <labels>
@@ -226,6 +223,24 @@
                         </labels>
                       </cell>
                       <cell locklevel="0" id="{44b8269e-3c72-486e-9349-6bbeef923470}" ordinalvalue="30002">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{f327a73e-bfdc-4b6d-87ab-43c7e91a292b}" locklevel="0" colspan="1" rowspan="1" ordinalvalue="10003">
+                        <labels>
+                          <label description="Account Number" languagecode="1033" />
+                        </labels>
+                        <control id="accountnumber" classid="{4273EDBD-AC1D-40D3-9FB2-095C621B552D}" datafieldname="accountnumber" disabled="false" />
+                      </cell>
+                      <cell locklevel="0" id="{26bb6505-63f3-45f9-bdab-2d0fd1c62b1a}" ordinalvalue="20004">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                      </cell>
+                      <cell locklevel="0" id="{4667e8ed-01f1-4319-be28-0bfa6760c7ea}" ordinalvalue="30005">
                         <labels>
                           <label description="" languagecode="1033" />
                         </labels>
