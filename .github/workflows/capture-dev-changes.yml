@@ -96,6 +96,12 @@ jobs:
           solution-output-file: out/${{ matrix.name }}_managed.zip
           managed: true
 
+      - name: Validate solution health
+        shell: bash
+        run: |
+          chmod +x .github/scripts/check-solution-health.sh
+          .github/scripts/check-solution-health.sh "out/${{ matrix.name }}.zip" "${{ matrix.name }}"
+
       - name: Unpack ${{ matrix.name }} solution
         uses: microsoft/powerplatform-actions/unpack-solution@v1
         with:
@@ -106,18 +112,21 @@ jobs:
 
       - name: Commit changes
         run: |
+          BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_suffix }}"  
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          
-          BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
-          
-          # Check if branch exists on remote, if not create it locally
-          if git ls-remote --heads origin "$BRANCH_NAME" | grep -q .; then
-            git checkout "$BRANCH_NAME"
+          git fetch --prune origin
+
+          # Checkout existing branch or create new one
+          if git ls-remote --heads origin "$BRANCH" | grep -q .; then
+            echo "Branch '$BRANCH' already exists. Checking out and pulling latest."
+            git checkout --track "origin/$BRANCH"
+            git pull origin "$BRANCH"
           else
-            git checkout -b "$BRANCH_NAME"
+            echo "Creating new branch '$BRANCH'."
+            git checkout -b "$BRANCH"
           fi
-          
+
           git add .
           git commit -m "${{ inputs.commit_message || 'chore: sync ${{ matrix.name }} (managed + unmanaged) from ${{ steps.set-env.outputs.env_url }}' }}" || echo "No changes to commit"
           git push -u origin "$BRANCH_NAME"

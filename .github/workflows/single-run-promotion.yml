@@ -193,6 +193,12 @@ jobs:
           solution-file: out/${{ matrix.name }}_${{ steps.solution_version.outputs.version }}_managed.zip
           solution-type: Managed
 
+      - name: Validate solution health
+        shell: bash
+        run: |
+          chmod +x .github/scripts/check-solution-health.sh
+          .github/scripts/check-solution-health.sh "out/${{ matrix.name }}_${{ steps.solution_version.outputs.version }}_managed.zip" "${{ matrix.name }}"
+
       - name: Upload artifact for ${{ matrix.name }}
         uses: actions/upload-artifact@v7
         with:
