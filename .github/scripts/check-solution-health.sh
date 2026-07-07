@@ -23,6 +23,8 @@ fi
 echo "Running Solution Checker for '$SOLUTION_NAME' on '$SOLUTION_FILE'"
 
 commands=(
+  "solution check --path $SOLUTION_FILE"
+  "solution check --solutionUrl $SOLUTION_FILE"
   "solution check --solution-file $SOLUTION_FILE --solution-name $SOLUTION_NAME"
   "solution check --zipfile $SOLUTION_FILE --solution-name $SOLUTION_NAME"
   "solutioncheck --solution-file $SOLUTION_FILE --solution-name $SOLUTION_NAME"
@@ -39,7 +41,7 @@ for syntax in "${commands[@]}"; do
     exit 0
   fi
 
-  if echo "$output" | grep -qiE 'unknown command|unrecognized command|command not found|not a valid command|not recognized as an internal or external command'; then
+  if echo "$output" | grep -qiE 'unknown command|unrecognized command|command not found|not a valid command|not recognized as an internal or external command|unknown argument|unrecognized argument|unknown option|unrecognized option'; then
     echo "Command syntax not supported, trying next: $PAC_CMD ${args[*]}"
     continue
   fi
