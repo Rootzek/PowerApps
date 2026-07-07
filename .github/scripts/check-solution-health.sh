@@ -25,10 +25,6 @@ echo "Running Solution Checker for '$SOLUTION_NAME' on '$SOLUTION_FILE'"
 commands=(
   "solution check --path $SOLUTION_FILE"
   "solution check --solutionUrl $SOLUTION_FILE"
-  "solution check --solution-file $SOLUTION_FILE --solution-name $SOLUTION_NAME"
-  "solution check --zipfile $SOLUTION_FILE --solution-name $SOLUTION_NAME"
-  "solutioncheck --solution-file $SOLUTION_FILE --solution-name $SOLUTION_NAME"
-  "solutionchecker run --solution-file $SOLUTION_FILE"
 )
 
 for syntax in "${commands[@]}"; do
