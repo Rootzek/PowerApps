@@ -76,15 +76,6 @@ jobs:
       - name: Install Power Platform Tools
         uses: microsoft/powerplatform-actions/actions-install@v1
 
-      - name: Authenticate to Power Platform for solution check
-        shell: bash
-        run: |
-          "$POWERPLATFORMTOOLS_PACPATH" auth create \
-            --environment "${{ steps.set-env.outputs.env_url }}" \
-            --applicationId "${{ secrets.PP_CLIENT_ID }}" \
-            --tenant "${{ secrets.PP_TENANT_ID }}" \
-            --githubFederated
-
       - name: Export ${{ matrix.name }} unmanaged solution
         uses: microsoft/powerplatform-actions/export-solution@v1
         with:
@@ -108,6 +99,10 @@ jobs:
       - name: Validate solution health with official action
         uses: microsoft/powerplatform-actions/check-solution@v1
         with:
+          environment-url: ${{ steps.set-env.outputs.env_url }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          client-secret: ${{ secrets.PP_CLIENT_SECRET }}
           path: out/${{ matrix.name }}.zip
           fail-on-analysis-error: true
 
