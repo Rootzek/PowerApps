@@ -105,11 +105,11 @@ jobs:
           solution-output-file: out/${{ matrix.name }}_managed.zip
           managed: true
 
-      - name: Validate solution health
-        shell: bash
-        run: |
-          chmod +x .github/scripts/check-solution-health.sh
-          .github/scripts/check-solution-health.sh "out/${{ matrix.name }}.zip" "${{ matrix.name }}"
+      - name: Validate solution health with official action
+        uses: microsoft/powerplatform-actions/check-solution@v1
+        with:
+          path: out/${{ matrix.name }}.zip
+          fail-on-analysis-error: true
 
       - name: Unpack ${{ matrix.name }} solution
         uses: microsoft/powerplatform-actions/unpack-solution@v1

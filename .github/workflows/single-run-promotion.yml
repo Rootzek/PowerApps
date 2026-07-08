@@ -186,15 +186,6 @@ jobs:
       - name: Install Power Platform Tools
         uses: microsoft/powerplatform-actions/actions-install@v1
 
-      - name: Authenticate to Power Platform for solution check
-        shell: bash
-        run: |
-          "$POWERPLATFORMTOOLS_PACPATH" auth create \
-            --environment "${{ vars.DEV_ENV_URL }}" \
-            --applicationId "${{ secrets.PP_CLIENT_ID }}" \
-            --tenant "${{ secrets.PP_TENANT_ID }}" \
-            --githubFederated
-
       - name: Pack ${{ matrix.name }} as managed
         uses: microsoft/powerplatform-actions/pack-solution@v1
         with:
@@ -202,11 +193,11 @@ jobs:
           solution-file: out/${{ matrix.name }}_${{ steps.solution_version.outputs.version }}_managed.zip
           solution-type: Managed
 
-      - name: Validate solution health
-        shell: bash
-        run: |
-          chmod +x .github/scripts/check-solution-health.sh
-          .github/scripts/check-solution-health.sh "out/${{ matrix.name }}_${{ steps.solution_version.outputs.version }}_managed.zip" "${{ matrix.name }}"
+      - name: Validate solution health with official action
+        uses: microsoft/powerplatform-actions/check-solution@v1
+        with:
+          path: out/${{ matrix.name }}.zip
+          fail-on-analysis-error: true
 
       - name: Upload artifact for ${{ matrix.name }}
         uses: actions/upload-artifact@v7
