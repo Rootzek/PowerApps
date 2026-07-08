@@ -76,6 +76,15 @@ jobs:
       - name: Install Power Platform Tools
         uses: microsoft/powerplatform-actions/actions-install@v1
 
+      - name: Authenticate to Power Platform for solution check
+        shell: bash
+        run: |
+          "$POWERPLATFORMTOOLS_PACPATH" auth create \
+            --environment "${{ steps.set-env.outputs.env_url }}" \
+            --applicationId "${{ secrets.PP_CLIENT_ID }}" \
+            --tenant "${{ secrets.PP_TENANT_ID }}" \
+            --githubFederated
+
       - name: Export ${{ matrix.name }} unmanaged solution
         uses: microsoft/powerplatform-actions/export-solution@v1
         with:
