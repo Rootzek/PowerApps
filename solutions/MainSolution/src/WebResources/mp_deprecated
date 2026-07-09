@@ -1,0 +1,10 @@
+function testDeprecatedApi(executionContext) {
+    // API dépréciée
+    var name = Xrm.Page.getAttribute("name").getValue();
+
+    if (name) {
+        Xrm.Page.getControl("name").setDisabled(true);
+    }
+
+    console.log(name);
+}
