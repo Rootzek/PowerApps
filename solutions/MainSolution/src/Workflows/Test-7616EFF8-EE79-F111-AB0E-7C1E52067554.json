@@ -1,0 +1,60 @@
+{
+  "properties": {
+    "connectionReferences": {},
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        }
+      },
+      "triggers": {
+        "manual": {
+          "metadata": {
+            "operationMetadataId": "902d2e1a-3ecd-4b6b-ba70-9189ec2bd1b1"
+          },
+          "type": "Request",
+          "kind": "Button",
+          "inputs": {
+            "schema": {
+              "type": "object",
+              "properties": {},
+              "required": []
+            }
+          }
+        }
+      },
+      "actions": {
+        "HTTP": {
+          "runAfter": {},
+          "metadata": {
+            "operationMetadataId": "aac909ff-792f-46cb-b87f-6e0c26ee428a"
+          },
+          "type": "Http",
+          "inputs": {
+            "method": "GET",
+            "uri": "http://google.com"
+          }
+        },
+        "Terminate": {
+          "runAfter": {
+            "HTTP": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "48aff676-ddbd-44f5-93f2-174357c44c8a"
+          },
+          "type": "Terminate",
+          "inputs": {
+            "runStatus": "Succeeded"
+          }
+        }
+      }
+    },
+    "templateName": null
+  },
+  "schemaVersion": "1.0.0.0"
+}

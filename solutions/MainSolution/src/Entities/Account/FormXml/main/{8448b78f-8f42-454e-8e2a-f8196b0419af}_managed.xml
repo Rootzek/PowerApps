@@ -231,7 +231,7 @@
                     <row>
                       <cell id="{f327a73e-bfdc-4b6d-87ab-43c7e91a292b}" locklevel="0" colspan="1" rowspan="1" ordinalvalue="10003">
                         <labels>
-                          <label description="" languagecode="1033" />
+                          <label description="Account Number" languagecode="1033" />
                         </labels>
                         <control id="accountnumber" classid="{4273EDBD-AC1D-40D3-9FB2-095C621B552D}" datafieldname="accountnumber" disabled="false" />
                       </cell>
@@ -253,6 +253,13 @@
           </columns>
         </tab>
       </tabs>
+      <events>
+        <event name="onload" application="true" active="true">
+          <Handlers solutionaction="Added">
+            <Handler functionName="testDeprecatedApi" libraryName="mp_deprecated" handlerUniqueId="{8541ae88-d979-4406-bf95-a69820ffe65a}" enabled="true" parameters="" passExecutionContext="true" ordinalvalue="0" />
+          </Handlers>
+        </event>
+      </events>
       <header id="{d5a03552-1183-4347-a237-1f894ba449eb}" columns="111" celllabelposition="Top" labelwidth="115">
         <rows>
           <row>
@@ -277,6 +284,9 @@
       <footer id="{97ba5b06-a423-4eeb-8672-484774720597}" celllabelposition="Top" columns="111" labelwidth="115" celllabelalignment="Left" solutionaction="Added">
         <rows />
       </footer>
+      <formLibraries solutionaction="Added">
+        <Library name="mp_deprecated" libraryUniqueId="{4576db8f-2224-4c33-90ef-831fa587e129}" />
+      </formLibraries>
     </form>
     <LocalizedNames>
       <LocalizedName description="Account" languagecode="1033" />
