@@ -121,13 +121,13 @@ jobs:
           git fetch --prune origin
 
           # Checkout existing branch or create new one
-          if git ls-remote --heads origin "$BRANCH" | grep -q .; then
-            echo "Branch '$BRANCH' already exists. Checking out and pulling latest."
-            git checkout --track "origin/$BRANCH"
-            git pull origin "$BRANCH"
+          if git ls-remote --heads origin "$BRANCH_NAME" | grep -q .; then
+            echo "Branch '$BRANCH_NAME' already exists. Checking out and pulling latest."
+            git checkout --track "origin/$BRANCH_NAME"
+            git pull origin "$BRANCH_NAME"
           else
-            echo "Creating new branch '$BRANCH'."
-            git checkout -b "$BRANCH"
+            echo "Creating new branch '$BRANCH_NAME'."
+            git checkout -b "$BRANCH_NAME"
           fi
 
           git add .
