@@ -121,20 +121,24 @@ jobs:
 
       - name: Commit changes
         run: |
-          BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_suffix }}"  
+          BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git fetch --prune origin
 
-          # Checkout existing branch or create new one
+          # Save any local workspace changes before switching branches.
+          git stash push -u -m "capture-dev-changes temp stash" >/dev/null || true
+
+          # Checkout existing branch or create new one.
           if git ls-remote --heads origin "$BRANCH_NAME" | grep -q .; then
-            echo "Branch '$BRANCH_NAME' already exists. Checking out and pulling latest."
-            git checkout --track "origin/$BRANCH_NAME"
-            git pull origin "$BRANCH_NAME"
+            echo "Branch '$BRANCH_NAME' already exists. Checking out and updating."
+            git checkout -B "$BRANCH_NAME" "origin/$BRANCH_NAME"
           else
             echo "Creating new branch '$BRANCH_NAME'."
-            git checkout -b "$BRANCH_NAME"
+            git checkout -B "$BRANCH_NAME"
           fi
+
+          git stash pop >/dev/null || true
 
           git add .
           git commit -m "${{ inputs.commit_message || 'chore: sync ${{ matrix.name }} (managed + unmanaged) from ${{ steps.set-env.outputs.env_url }}' }}" || echo "No changes to commit"
@@ -144,10 +148,10 @@ jobs:
         if: always()
         shell: bash
         run: |
-          BRANCH="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
+          BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
           echo "## Capture Complete ✅" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Dev Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch:** $BRANCH" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** $BRANCH_NAME" >> $GITHUB_STEP_SUMMARY
           echo "- **Solutions:** ${{ inputs.solutions }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Environment ID:** ${{ steps.set-env.outputs.env_id }}" >> $GITHUB_STEP_SUMMARY
