@@ -111,6 +111,15 @@ jobs:
           chmod +x .github/scripts/check-solution-health.sh
           .github/scripts/check-solution-health.sh "out/${{ matrix.name }}.zip" "${{ matrix.name }}"
 
+      - name: Upload solution checker report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: solution-checker-${{ matrix.name }}
+          path: |
+            out/${{ matrix.name }}_checker_results.zip
+            out/${{ matrix.name }}_checker_results/**
+
       - name: Unpack ${{ matrix.name }} solution
         uses: microsoft/powerplatform-actions/unpack-solution@v1
         with:
