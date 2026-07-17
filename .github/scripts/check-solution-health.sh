@@ -34,9 +34,29 @@ commands=(
 for syntax in "${commands[@]}"; do
   read -r -a args <<< "$syntax"
   echo "+ $PAC_CMD ${args[*]}"
-
   if output="$($PAC_CMD "${args[@]}" 2>&1)"; then
     echo "$output"
+
+    # If the tool explicitly reports no issues or zero findings, consider this a pass.
+    if echo "$output" | grep -qiE 'no (issues|problems|findings)|0 (issues|problems|findings)|0 (critical|high|medium|low)'; then
+      echo "Solution health check passed via: $PAC_CMD ${args[*]}"
+      exit 0
+    fi
+
+    # Detect any reported findings such as "4 medium found" or "Found 4 issues" or severity counts.
+    if echo "$output" | grep -qiE '[0-9]+\s+(critical|high|medium|low)\s+found|found\s+[0-9]+.*(issue|issues|problem|problems)|[0-9]+\s+(critical|high|medium|low)'; then
+      echo "Solution health check detected findings for '$SOLUTION_NAME':"
+      echo "$output"
+      exit 1
+    fi
+
+    # If output contains obvious error/failure text, fail.
+    if echo "$output" | grep -qiE 'error|failed|exception'; then
+      echo "Solution health check failed for '$SOLUTION_NAME' with command: $PAC_CMD ${args[*]}"
+      exit 1
+    fi
+
+    # No indicators of findings or errors detected; treat as pass.
     echo "Solution health check passed via: $PAC_CMD ${args[*]}"
     exit 0
   fi

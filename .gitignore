@@ -51,6 +51,8 @@ Thumbs.db
 
 .vscode/
 .idea/
+.vs/
+**/.vs/
 
 # Visual Studio / .NET leftovers (common in PP repos)
 bin/
