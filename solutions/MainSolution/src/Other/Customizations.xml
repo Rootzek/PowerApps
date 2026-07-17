@@ -1,5 +1,9 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
+<<<<<<< Updated upstream
 <ImportExportXml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" OrganizationVersion="9.2.26063.145" OrganizationSchemaType="Standard" CRMServerServiceabilityVersion="9.2.26064.00143">
+=======
+<ImportExportXml xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" OrganizationVersion="9.2.26065.151" OrganizationSchemaType="Standard" CRMServerServiceabilityVersion="9.2.26065.00158">
+>>>>>>> Stashed changes
   <Entities />
   <Roles />
   <Workflows />
@@ -11,6 +15,7 @@
   <optionsets />
   <WebResources />
   <CustomControls />
+  <SolutionPluginAssemblies />
   <AppModuleSiteMaps />
   <AppModules />
   <EntityDataProviders />
