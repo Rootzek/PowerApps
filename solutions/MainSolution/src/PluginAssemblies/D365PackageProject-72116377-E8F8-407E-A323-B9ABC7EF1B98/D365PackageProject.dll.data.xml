@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<PluginAssembly FullName="D365PackageProject, Version=1.0.0.0, Culture=neutral, PublicKeyToken=21bbb151d6bf4677" PluginAssemblyId="72116377-e8f8-407e-a323-b9abc7ef1b98" CustomizationLevel="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <IsolationMode>2</IsolationMode>
+  <SourceType>0</SourceType>
+  <IntroducedVersion>1.0</IntroducedVersion>
+  <FileName>/PluginAssemblies/D365PackageProject-72116377-E8F8-407E-A323-B9ABC7EF1B98/D365PackageProject.dll</FileName>
+  <PluginTypes>
+    <PluginType AssemblyQualifiedName="D365PackageProject.PreOperationFormatPhoneCreateUpdate, D365PackageProject, Version=1.0.0.0, Culture=neutral, PublicKeyToken=21bbb151d6bf4677" PluginTypeId="92f0cab8-ff16-465c-808c-966055031e79" Name="D365PackageProject.PreOperationFormatPhoneCreateUpdate">
+      <FriendlyName>9457c526-5878-4ef9-b307-d2a7cdba439f</FriendlyName>
+    </PluginType>
+    <PluginType AssemblyQualifiedName="PostOperationFormatPhoneOnRetrieveMultiple.PostOperationFormatPhoneOnRetrieveMultiple, D365PackageProject, Version=1.0.0.0, Culture=neutral, PublicKeyToken=21bbb151d6bf4677" PluginTypeId="5d37d33e-be93-4c75-8b2c-3377754236e9" Name="PostOperationFormatPhoneOnRetrieveMultiple.PostOperationFormatPhoneOnRetrieveMultiple">
+      <FriendlyName>b9609f23-d64d-479a-ba21-ec9740c5a50c</FriendlyName>
+    </PluginType>
+  </PluginTypes>
+</PluginAssembly>
