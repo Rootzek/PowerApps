@@ -1,9 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<<<<<<< Updated upstream
-<ImportExportXml version="9.2.26063.145" SolutionPackageVersion="9.2" languagecode="1033" generatedBy="CrmLive" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" OrganizationVersion="9.2.26063.145" OrganizationSchemaType="Standard" CRMServerServiceabilityVersion="9.2.26064.00143">
-=======
 <ImportExportXml version="9.2.26065.151" SolutionPackageVersion="9.2" languagecode="1033" generatedBy="CrmLive" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" OrganizationVersion="9.2.26065.151" OrganizationSchemaType="Standard" CRMServerServiceabilityVersion="9.2.26065.00158">
->>>>>>> Stashed changes
   <SolutionManifest>
     <UniqueName>MainSolution</UniqueName>
     <LocalizedNames>
@@ -113,13 +109,9 @@
         <Dependent type="80" schemaName="mp_WannabeeSalesHub" displayName="WannabeeSalesHub" />
       </MissingDependency>
       <MissingDependency>
-<<<<<<< Updated upstream
-        <Required type="66" schemaName="MscrmControls.CardFeedContainer.CardFeedContainer" displayName="MscrmControls.CardFeedContainer.CardFeedContainer" solution="BaseCustomControlsCore (9.0.2606.3004)" />
-=======
         <Required type="66" schemaName="MscrmControls.CardFeedContainer.CardFeedContainer" displayName="MscrmControls.CardFeedContainer.CardFeedContainer" solution="BaseCustomControlsCore (9.0.2606.5012)">
           <package appName="Base Custom Controls" version="9.0.2606.5012">BaseCustomControlsCore (9.0.2606.5012)</package>
         </Required>
->>>>>>> Stashed changes
         <Dependent type="60" displayName="Account" parentDisplayName="Account" id="{8448b78f-8f42-454e-8e2a-f8196b0419af}" />
       </MissingDependency>
       <MissingDependency>
