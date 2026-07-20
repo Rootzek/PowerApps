@@ -147,7 +147,31 @@ jobs:
             git checkout -B "$BRANCH_NAME"
           fi
 
-          git stash pop >/dev/null || true
+          # Rebase on main to get latest changes (if branch exists)
+          if git ls-remote --heads origin main | grep -q .; then
+            git rebase origin/main || echo "Note: Rebase may have conflicts; proceeding with stash pop"
+          fi
+
+          # Apply stashed changes
+          git stash pop || echo "No stash to pop"
+          
+          # Handle merge conflicts
+          # Check if there are any merge conflicts
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo "❌ MERGE CONFLICTS DETECTED - Manual resolution requested"
+            echo ""
+            echo "Conflicted files:"
+            git diff --name-only --diff-filter=U
+            echo ""
+            echo "To resolve manually:"
+            echo "1. git fetch origin"
+            echo "2. git checkout $BRANCH_NAME"
+            echo "3. Edit conflicted files in VS Code (remove <<<<<<< ======= >>>>>>> markers)"
+            echo "4. git add ."
+            echo "5. git commit -m 'Resolve merge conflicts'"
+            echo "6. git push origin $BRANCH_NAME"
+            exit 1
+          fi
 
           git add .
           git commit -m "${{ inputs.commit_message || 'chore: sync ${{ matrix.name }} (managed + unmanaged) from ${{ steps.set-env.outputs.env_url }}' }}" || echo "No changes to commit"
