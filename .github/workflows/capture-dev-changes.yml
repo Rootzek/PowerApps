@@ -113,30 +113,19 @@ jobs:
 
       - name: Upload solution checker report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: solution-checker-${{ matrix.name }}
           path: |
             out/${{ matrix.name }}_checker_results.zip
             out/${{ matrix.name }}_checker_results/**
 
-      - name: Unpack ${{ matrix.name }} solution
-        uses: microsoft/powerplatform-actions/unpack-solution@v1
-        with:
-          solution-file: out/${{ matrix.name }}.zip
-          solution-folder: solutions/${{ matrix.name }}/src
-          solution-type: Both
-          overwrite-files: true
-
-      - name: Commit changes
+      - name: Prepare branch for rebase
         run: |
           BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git fetch --prune origin
-
-          # Save any local workspace changes before switching branches.
-          git stash push -u -m "capture-dev-changes temp stash" >/dev/null || true
 
           # Checkout existing branch or create new one.
           if git ls-remote --heads origin "$BRANCH_NAME" | grep -q .; then
@@ -147,38 +136,41 @@ jobs:
             git checkout -B "$BRANCH_NAME"
           fi
 
-          # Rebase on main to get latest changes (if branch exists)
-          if git ls-remote --heads origin main | grep -q .; then
-            git rebase origin/main || echo "Note: Rebase may have conflicts; proceeding with stash pop"
-          fi
+          # Clean solution folder before rebase to avoid trivial conflicts
+          echo "Cleaning solutions/${{ matrix.name }}/src..."
+          rm -rf "solutions/${{ matrix.name }}/src"
+          git add "solutions/${{ matrix.name }}/src" || true
 
-          # Apply stashed changes
-          git stash pop || echo "No stash to pop"
+      - name: Rebase on main
+        run: |
+          BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
           
-          # Handle merge conflicts
-          # Check if there are any merge conflicts
-          if git diff --name-only --diff-filter=U | grep -q .; then
-            echo "❌ MERGE CONFLICTS DETECTED - Manual resolution requested"
-            echo ""
-            echo "Conflicted files:"
-            git diff --name-only --diff-filter=U
-            echo ""
-            echo "To resolve manually:"
-            echo "1. git fetch origin"
-            echo "2. git checkout $BRANCH_NAME"
-            echo "3. Edit conflicted files in VS Code (remove <<<<<<< ======= >>>>>>> markers)"
-            echo "4. git add ."
-            echo "5. git commit -m 'Resolve merge conflicts'"
-            echo "6. git push origin $BRANCH_NAME"
-            exit 1
+          # Rebase on main to get latest changes
+          if git ls-remote --heads origin main | grep -q .; then
+            git rebase origin/main
           fi
+          
+          echo "✅ Rebase successful"
 
-          git add .
+      - name: Unpack ${{ matrix.name }} solution
+        uses: microsoft/powerplatform-actions/unpack-solution@v1
+        with:
+          solution-file: out/${{ matrix.name }}.zip
+          solution-folder: solutions/${{ matrix.name }}/src
+          solution-type: Both
+          overwrite-files: true
+
+      - name: Commit unpacked solution
+        run: |
+          BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add "solutions/${{ matrix.name }}/src"
           git commit -m "${{ inputs.commit_message || 'chore: sync ${{ matrix.name }} (managed + unmanaged) from ${{ steps.set-env.outputs.env_url }}' }}" || echo "No changes to commit"
           git push -u origin "$BRANCH_NAME"
 
       - name: Summary
-        if: always()
         shell: bash
         run: |
           BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
