@@ -48,9 +48,13 @@ jobs:
     needs: build-matrix
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
+    concurrency:
+      group: capture-${{ inputs.environment }}-${{ inputs.branch_suffix }}
+      cancel-in-progress: false
 
     strategy:
       fail-fast: true
+      max-parallel: 1
       matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
 
     steps:
@@ -141,21 +145,48 @@ jobs:
             git checkout -B "$BRANCH_NAME"
           fi
 
-          # Clean solution folder before rebase to avoid trivial conflicts
-          echo "Cleaning solutions/${{ matrix.name }}/src..."
-          rm -rf "solutions/${{ matrix.name }}/src"
-          git add "solutions/${{ matrix.name }}/src" || true
-
       - name: Rebase on main
         run: |
           BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
-          
-          # Rebase on main to get latest changes
+
+          # Working tree is guaranteed clean at this point (reset --hard + clean -fd
+          # in the previous step, nothing staged since), so the rebase can proceed
+          # without the "you have uncommitted changes" error.
           if git ls-remote --heads origin main | grep -q .; then
-            git rebase origin/main
+            if ! git rebase origin/main; then
+              git rebase --abort
+
+              echo "::error::Rebase of '$BRANCH_NAME' onto origin/main hit conflicts and was aborted. Resolve locally and push manually."
+              {
+                echo "## ❌ Rebase conflict"
+                echo ""
+                echo "Branch **$BRANCH_NAME** could not be automatically rebased onto **main**."
+                echo "Resolve it locally, then push the result so this workflow can pick it up on the next run:"
+                echo ""
+                echo '```bash'
+                echo "git fetch origin"
+                echo "git checkout $BRANCH_NAME"
+                echo "git rebase origin/main"
+                echo "# fix conflicts in the affected files, then:"
+                echo "git add ."
+                echo "git rebase --continue"
+                echo "git push --force-with-lease origin $BRANCH_NAME"
+                echo '```'
+              } >> "$GITHUB_STEP_SUMMARY"
+
+              exit 1
+            fi
           fi
-          
+
           echo "✅ Rebase successful"
+
+      - name: Clean ${{ matrix.name }} solution folder
+        run: |
+          # Remove the previously committed unpack before re-unpacking, so files
+          # deleted/renamed in the export don't linger. Done after the rebase so
+          # the rebase always starts from a clean working tree.
+          echo "Cleaning solutions/${{ matrix.name }}/src..."
+          rm -rf "solutions/${{ matrix.name }}/src"
 
       - name: Unpack ${{ matrix.name }} solution
         uses: microsoft/powerplatform-actions/unpack-solution@v1
@@ -173,7 +204,10 @@ jobs:
 
           git add "solutions/${{ matrix.name }}/src"
           git commit -m "${{ inputs.commit_message || 'chore: sync ${{ matrix.name }} (managed + unmanaged) from ${{ steps.set-env.outputs.env_url }}' }}" || echo "No changes to commit"
-          git push -u origin "$BRANCH_NAME"
+
+          # --force-with-lease is required because the rebase step rewrites
+          # this branch's history relative to whatever was previously pushed.
+          git push --force-with-lease -u origin "$BRANCH_NAME"
 
       - name: Summary
         shell: bash
