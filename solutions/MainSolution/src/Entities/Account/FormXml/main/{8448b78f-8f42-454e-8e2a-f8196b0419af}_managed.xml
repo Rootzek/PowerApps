@@ -253,13 +253,6 @@
           </columns>
         </tab>
       </tabs>
-      <events>
-        <event name="onload" application="true" active="true">
-          <Handlers solutionaction="Added">
-            <Handler functionName="testDeprecatedApi" libraryName="mp_deprecated" handlerUniqueId="{8541ae88-d979-4406-bf95-a69820ffe65a}" enabled="true" parameters="" passExecutionContext="true" ordinalvalue="0" />
-          </Handlers>
-        </event>
-      </events>
       <header id="{d5a03552-1183-4347-a237-1f894ba449eb}" columns="111" celllabelposition="Top" labelwidth="115">
         <rows>
           <row>
