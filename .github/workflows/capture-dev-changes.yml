@@ -125,6 +125,11 @@ jobs:
           BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
+          
+          # Clean any uncommitted changes to ensure clean working directory
+          git reset --hard HEAD
+          git clean -fd
+          
           git fetch --prune origin
 
           # Checkout existing branch or create new one.
