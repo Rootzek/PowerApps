@@ -81,7 +81,16 @@
                   <labels>
                     <label description="New Section" languagecode="1033" />
                   </labels>
-                  <rows />
+                  <rows>
+                    <row>
+                      <cell id="{31d156a7-3f76-4bfc-9584-fc19ba32cddf}" locklevel="0" colspan="1" rowspan="1" ordinalvalue="10000">
+                        <labels>
+                          <label description="Territory Code" languagecode="1033" />
+                        </labels>
+                        <control id="territorycode" classid="{3EF39988-22BB-4F0B-BBBE-64B5A3748AEE}" datafieldname="territorycode" disabled="false" />
+                      </cell>
+                    </row>
+                  </rows>
                 </section>
               </sections>
             </column>

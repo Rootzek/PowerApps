@@ -81,7 +81,16 @@
                   <labels>
                     <label description="New Section" languagecode="1033" />
                   </labels>
-                  <rows />
+                  <rows>
+                    <row>
+                      <cell id="{31d156a7-3f76-4bfc-9584-fc19ba32cddf}" locklevel="0" colspan="1" rowspan="1" ordinalvalue="10000">
+                        <labels>
+                          <label description="" languagecode="1033" />
+                        </labels>
+                        <control id="territorycode" classid="{3EF39988-22BB-4F0B-BBBE-64B5A3748AEE}" datafieldname="territorycode" disabled="false" />
+                      </cell>
+                    </row>
+                  </rows>
                 </section>
               </sections>
             </column>
@@ -231,7 +240,7 @@
                     <row>
                       <cell id="{f327a73e-bfdc-4b6d-87ab-43c7e91a292b}" locklevel="0" colspan="1" rowspan="1" ordinalvalue="10003">
                         <labels>
-                          <label description="" languagecode="1033" />
+                          <label description="Account Number" languagecode="1033" />
                         </labels>
                         <control id="accountnumber" classid="{4273EDBD-AC1D-40D3-9FB2-095C621B552D}" datafieldname="accountnumber" disabled="false" />
                       </cell>
