@@ -81,18 +81,23 @@
       <RootComponent type="1" schemaName="account" behavior="1" />
       <RootComponent type="62" schemaName="mp_WannabeeSalesHub" behavior="0" />
       <RootComponent type="80" schemaName="mp_WannabeeSalesHub" behavior="0" />
+      <RootComponent type="91" id="{72116377-e8f8-407e-a323-b9abc7ef1b98}" schemaName="D365PackageProject, Version=1.0.0.0, Culture=neutral, PublicKeyToken=21bbb151d6bf4677" behavior="0" />
     </RootComponents>
     <MissingDependencies>
       <MissingDependency>
         <Required type="60" displayName="account contact card" parentDisplayName="Contact" solution="msdynce_AppCommon (9.0.4.0066)" id="{29de27bc-a257-4f29-99cf-bab4a84e688f}">
-          <package appName="msdynce_AppCommon" version="9.0.26064.10002">msdynce_AppCommonAnchor (9.0.26064.10002)</package>
+          <package appName="msdynce_AppCommon" version="9.0.26051.10001">msdynce_AppCommonAnchor (9.0.26051.10001)</package>
         </Required>
         <Dependent type="60" displayName="Account" parentDisplayName="Account" id="{8448b78f-8f42-454e-8e2a-f8196b0419af}" />
       </MissingDependency>
       <MissingDependency>
         <Required type="60" displayName="Account" parentDisplayName="Account" solution="msdynce_AppCommon (9.0.4.0066)" id="{8448b78f-8f42-454e-8e2a-f8196b0419af}">
-          <package appName="msdynce_AppCommon" version="9.0.26064.10002">msdynce_AppCommonAnchor (9.0.26064.10002)</package>
+          <package appName="msdynce_AppCommon" version="9.0.26051.10001">msdynce_AppCommonAnchor (9.0.26051.10001)</package>
         </Required>
+        <Dependent type="60" displayName="Account" parentDisplayName="Account" id="{8448b78f-8f42-454e-8e2a-f8196b0419af}" />
+      </MissingDependency>
+      <MissingDependency>
+        <Required type="61" schemaName="mp_deprecated" displayName="mp_deprecated" solution="Active" />
         <Dependent type="60" displayName="Account" parentDisplayName="Account" id="{8448b78f-8f42-454e-8e2a-f8196b0419af}" />
       </MissingDependency>
       <MissingDependency>
