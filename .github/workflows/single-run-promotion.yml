@@ -186,6 +186,13 @@ jobs:
       - name: Install Power Platform Tools
         uses: microsoft/powerplatform-actions/actions-install@v1
 
+      - name: Pack ${{ matrix.name }} as unmanaged for validation
+        uses: microsoft/powerplatform-actions/pack-solution@v1
+        with:
+          solution-folder: solutions/${{ matrix.name }}/src
+          solution-file: out/${{ matrix.name }}.zip
+          solution-type: Unmanaged
+
       - name: Pack ${{ matrix.name }} as managed
         uses: microsoft/powerplatform-actions/pack-solution@v1
         with:
@@ -193,14 +200,29 @@ jobs:
           solution-file: out/${{ matrix.name }}_${{ steps.solution_version.outputs.version }}_managed.zip
           solution-type: Managed
 
-      - name: Validate solution health with official action
-        uses: microsoft/powerplatform-actions/check-solution@v1
+      - name: Authenticate to Power Platform for solution check
+        shell: bash
+        run: |
+          "$POWERPLATFORMTOOLS_PACPATH" auth create \
+            --environment "${{ vars.DEV_ENV_URL }}" \
+            --applicationId "${{ secrets.PP_CLIENT_ID }}" \
+            --tenant "${{ secrets.PP_TENANT_ID }}" \
+            --githubFederated
+
+      - name: Validate solution health
+        shell: bash
+        run: |
+          chmod +x .github/scripts/check-solution-health.sh
+          .github/scripts/check-solution-health.sh "out/${{ matrix.name }}.zip" "${{ matrix.name }}"
+
+      - name: Upload solution checker report
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
-          environment-url: ${{ vars.DEV_ENV_URL }}
-          app-id: ${{ secrets.PP_CLIENT_ID }}
-          tenant-id: ${{ secrets.PP_TENANT_ID }}
-          path: out/${{ matrix.name }}.zip
-          fail-on-analysis-error: true
+          name: solution-checker-${{ matrix.name }}-${{ steps.solution_version.outputs.version }}
+          path: |
+            out/${{ matrix.name }}_checker_results.zip
+            out/${{ matrix.name }}_checker_results/**
 
       - name: Upload artifact for ${{ matrix.name }}
         uses: actions/upload-artifact@v7
