@@ -63,6 +63,64 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Prepare branch for validation
+        run: |
+          BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          # Clean any uncommitted changes to ensure clean working directory.
+          git reset --hard HEAD
+          git clean -fd
+
+          git fetch --prune origin
+
+          if git ls-remote --heads origin "$BRANCH_NAME" | grep -q .; then
+            echo "Branch '$BRANCH_NAME' already exists. Checking out and updating."
+            git checkout -B "$BRANCH_NAME" "origin/$BRANCH_NAME"
+          else
+            echo "::error::Branch '$BRANCH_NAME' does not exist. Prepare the environment from main before capturing changes."
+            {
+              echo "## ❌ Capture blocked"
+              echo ""
+              echo "Branch **$BRANCH_NAME** does not exist yet."
+              echo "Run **prepare-dev-environment** first so the environment and branch share the same Git baseline before any maker changes are captured."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: Block stale environment capture
+        shell: bash
+        run: |
+          BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
+          BASE_SHA=$(git merge-base HEAD origin/main)
+
+          if [ -z "$BASE_SHA" ]; then
+            echo "::error::Unable to determine merge-base between '$BRANCH_NAME' and origin/main."
+            exit 1
+          fi
+
+          if git diff --quiet "$BASE_SHA" origin/main -- "solutions/${{ matrix.name }}/src"; then
+            echo "No newer main changes detected for solutions/${{ matrix.name }}/src since $BASE_SHA"
+            exit 0
+          fi
+
+          echo "::error::Capture blocked for '${{ matrix.name }}': main changed after branch '$BRANCH_NAME' diverged. Refresh the dev environment from the latest branch baseline before exporting."
+          {
+            echo "## ❌ Capture blocked"
+            echo ""
+            echo "Solution **${{ matrix.name }}** changed on **main** after branch **$BRANCH_NAME** diverged from commit **$BASE_SHA**."
+            echo "Exporting from this environment could overwrite changes already merged to main."
+            echo ""
+            echo "Required action:"
+            echo "1. If the environment contains maker work that is not captured elsewhere, run **backup-dev-changes** first for **${{ inputs.environment }}** and **${{ matrix.name }}**."
+            echo "2. Rebase or merge the branch with the latest **main** locally."
+            echo "3. Run **prepare-dev-environment** again for **${{ inputs.environment }}**."
+            echo "4. Re-apply or re-validate maker changes in the refreshed environment."
+            echo "5. Run **capture-dev-changes** again."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
       - name: Set environment variables
         id: set-env
         shell: bash
