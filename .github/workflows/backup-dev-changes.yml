@@ -1,0 +1,122 @@
+name: backup-dev-changes
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Dev environment to back up'
+        required: true
+        type: choice
+        options:
+          - dev_user1
+          - dev_user2
+      solutions:
+        description: 'Comma-separated solution names to export as a safety backup (e.g. MainSolution,SurveysSolution)'
+        required: true
+        type: string
+      backup_label:
+        description: 'Optional label to append to the backup artifact name'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-matrix:
+    runs-on: ubuntu-latest
+
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+
+    steps:
+      - name: Build solution matrix
+        id: build
+        shell: bash
+        run: |
+          MATRIX_JSON=$(jq -n --arg solutions "${{ inputs.solutions }}" -c '{include: ($solutions | split(",") | map(gsub("^\\s+|\\s+$";"") | select(length > 0) | {name: .}))}')
+          echo "matrix=$MATRIX_JSON" >> "$GITHUB_OUTPUT"
+          echo "Generated matrix:"
+          echo "$MATRIX_JSON"
+
+  backup-solutions:
+    needs: build-matrix
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Set environment variables
+        id: set-env
+        shell: bash
+        run: |
+          if [ "${{ inputs.environment }}" = "dev_user1" ]; then
+            ENV_URL="${{ vars.DEV_USER1_ENV_URL }}"
+            ENV_ID="${{ vars.DEV_USER1_ENV_ID }}"
+          else
+            ENV_URL="${{ vars.DEV_USER2_ENV_URL }}"
+            ENV_ID="${{ vars.DEV_USER2_ENV_ID }}"
+          fi
+          echo "env_url=$ENV_URL" >> "$GITHUB_OUTPUT"
+          echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      - name: Export ${{ matrix.name }} unmanaged solution backup
+        uses: microsoft/powerplatform-actions/export-solution@v1
+        with:
+          environment-url: ${{ steps.set-env.outputs.env_url }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-name: ${{ matrix.name }}
+          solution-output-file: out/${{ matrix.name }}.zip
+          managed: false
+
+      - name: Export ${{ matrix.name }} managed solution backup
+        uses: microsoft/powerplatform-actions/export-solution@v1
+        with:
+          environment-url: ${{ steps.set-env.outputs.env_url }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-name: ${{ matrix.name }}
+          solution-output-file: out/${{ matrix.name }}_managed.zip
+          managed: true
+
+      - name: Build backup artifact name
+        id: artifact
+        shell: bash
+        run: |
+          SAFE_LABEL=$(printf '%s' "${{ inputs.backup_label }}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')
+          if [ -n "$SAFE_LABEL" ]; then
+            ARTIFACT_NAME="backup-${{ inputs.environment }}-${{ matrix.name }}-$SAFE_LABEL"
+          else
+            ARTIFACT_NAME="backup-${{ inputs.environment }}-${{ matrix.name }}-${GITHUB_RUN_ID}"
+          fi
+          echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload backup artifact for ${{ matrix.name }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.artifact.outputs.artifact_name }}
+          path: |
+            out/${{ matrix.name }}.zip
+            out/${{ matrix.name }}_managed.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo "## Backup Complete ✅" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Dev Environment:** ${{ inputs.environment }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Environment URL:** ${{ steps.set-env.outputs.env_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Solution:** ${{ matrix.name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Artifact:** ${{ steps.artifact.outputs.artifact_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Use Case:** Save maker changes before resetting a stale environment." >> "$GITHUB_STEP_SUMMARY"
