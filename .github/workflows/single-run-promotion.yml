@@ -343,7 +343,37 @@ jobs:
           name: managed-${{ matrix.name }}-${{ needs.build-artifacts.outputs.version }}
           path: out
 
+      - name: Prepare deployment settings for ${{ matrix.name }}
+        id: settings
+        shell: bash
+        run: |
+          FILE="solutions/${{ matrix.name }}/env-settings/dev.json"
+          if [ -f "$FILE" ]; then
+            # Inject GitHub secrets and variables into the settings file.
+            # Add one export line per placeholder (${PLACEHOLDER}) used in the file.
+            # Example: export MY_API_KEY="${{ secrets.MY_API_KEY }}"
+            # Example: export MY_SERVICE_URL="${{ vars.MY_SERVICE_URL }}"
+            envsubst < "$FILE" > "${FILE}.tmp" && mv "${FILE}.tmp" "$FILE"
+            echo "has_settings=true" >> "$GITHUB_OUTPUT"
+            echo "settings_file=$FILE" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_settings=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Import ${{ matrix.name }} to DEV
+        if: steps.settings.outputs.has_settings == 'true'
+        uses: microsoft/powerplatform-actions/import-solution@v1
+        with:
+          environment-url: ${{ vars.DEV_ENV_URL }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-file: out/${{ matrix.name }}_${{ needs.build-artifacts.outputs.version }}_managed.zip
+          force-overwrite: true
+          publish-changes: true
+          deployment-settings-file: ${{ steps.settings.outputs.settings_file }}
+
+      - name: Import ${{ matrix.name }} to DEV
+        if: steps.settings.outputs.has_settings != 'true'
         uses: microsoft/powerplatform-actions/import-solution@v1
         with:
           environment-url: ${{ vars.DEV_ENV_URL }}
@@ -381,7 +411,37 @@ jobs:
           name: managed-${{ matrix.name }}-${{ needs.build-artifacts.outputs.version }}
           path: out
 
+      - name: Prepare deployment settings for ${{ matrix.name }}
+        id: settings
+        shell: bash
+        run: |
+          FILE="solutions/${{ matrix.name }}/env-settings/qa.json"
+          if [ -f "$FILE" ]; then
+            # Inject GitHub secrets and variables into the settings file.
+            # Add one export line per placeholder (${PLACEHOLDER}) used in the file.
+            # Example: export MY_API_KEY="${{ secrets.MY_API_KEY }}"
+            # Example: export MY_SERVICE_URL="${{ vars.MY_SERVICE_URL }}"
+            envsubst < "$FILE" > "${FILE}.tmp" && mv "${FILE}.tmp" "$FILE"
+            echo "has_settings=true" >> "$GITHUB_OUTPUT"
+            echo "settings_file=$FILE" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_settings=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Import ${{ matrix.name }} to QA
+        if: steps.settings.outputs.has_settings == 'true'
+        uses: microsoft/powerplatform-actions/import-solution@v1
+        with:
+          environment-url: ${{ vars.QA_ENV_URL }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-file: out/${{ matrix.name }}_${{ needs.build-artifacts.outputs.version }}_managed.zip
+          force-overwrite: true
+          publish-changes: true
+          deployment-settings-file: ${{ steps.settings.outputs.settings_file }}
+
+      - name: Import ${{ matrix.name }} to QA
+        if: steps.settings.outputs.has_settings != 'true'
         uses: microsoft/powerplatform-actions/import-solution@v1
         with:
           environment-url: ${{ vars.QA_ENV_URL }}
@@ -420,7 +480,37 @@ jobs:
           name: managed-${{ matrix.name }}-${{ needs.build-artifacts.outputs.version }}
           path: out
 
+      - name: Prepare deployment settings for ${{ matrix.name }}
+        id: settings
+        shell: bash
+        run: |
+          FILE="solutions/${{ matrix.name }}/env-settings/prep.json"
+          if [ -f "$FILE" ]; then
+            # Inject GitHub secrets and variables into the settings file.
+            # Add one export line per placeholder (${PLACEHOLDER}) used in the file.
+            # Example: export MY_API_KEY="${{ secrets.MY_API_KEY }}"
+            # Example: export MY_SERVICE_URL="${{ vars.MY_SERVICE_URL }}"
+            envsubst < "$FILE" > "${FILE}.tmp" && mv "${FILE}.tmp" "$FILE"
+            echo "has_settings=true" >> "$GITHUB_OUTPUT"
+            echo "settings_file=$FILE" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_settings=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Import ${{ matrix.name }} to PREP
+        if: steps.settings.outputs.has_settings == 'true'
+        uses: microsoft/powerplatform-actions/import-solution@v1
+        with:
+          environment-url: ${{ vars.PREP_ENV_URL }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-file: out/${{ matrix.name }}_${{ needs.build-artifacts.outputs.version }}_managed.zip
+          force-overwrite: true
+          publish-changes: true
+          deployment-settings-file: ${{ steps.settings.outputs.settings_file }}
+
+      - name: Import ${{ matrix.name }} to PREP
+        if: steps.settings.outputs.has_settings != 'true'
         uses: microsoft/powerplatform-actions/import-solution@v1
         with:
           environment-url: ${{ vars.PREP_ENV_URL }}
@@ -460,7 +550,37 @@ jobs:
           name: managed-${{ matrix.name }}-${{ needs.build-artifacts.outputs.version }}
           path: out
 
+      - name: Prepare deployment settings for ${{ matrix.name }}
+        id: settings
+        shell: bash
+        run: |
+          FILE="solutions/${{ matrix.name }}/env-settings/prod.json"
+          if [ -f "$FILE" ]; then
+            # Inject GitHub secrets and variables into the settings file.
+            # Add one export line per placeholder (${PLACEHOLDER}) used in the file.
+            # Example: export MY_API_KEY="${{ secrets.MY_API_KEY }}"
+            # Example: export MY_SERVICE_URL="${{ vars.MY_SERVICE_URL }}"
+            envsubst < "$FILE" > "${FILE}.tmp" && mv "${FILE}.tmp" "$FILE"
+            echo "has_settings=true" >> "$GITHUB_OUTPUT"
+            echo "settings_file=$FILE" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_settings=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Import ${{ matrix.name }} to PROD
+        if: steps.settings.outputs.has_settings == 'true'
+        uses: microsoft/powerplatform-actions/import-solution@v1
+        with:
+          environment-url: ${{ vars.PROD_ENV_URL }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-file: out/${{ matrix.name }}_${{ needs.build-artifacts.outputs.version }}_managed.zip
+          force-overwrite: true
+          publish-changes: true
+          deployment-settings-file: ${{ steps.settings.outputs.settings_file }}
+
+      - name: Import ${{ matrix.name }} to PROD
+        if: steps.settings.outputs.has_settings != 'true'
         uses: microsoft/powerplatform-actions/import-solution@v1
         with:
           environment-url: ${{ vars.PROD_ENV_URL }}

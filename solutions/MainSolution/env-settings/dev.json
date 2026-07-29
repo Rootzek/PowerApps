@@ -1,0 +1,13 @@
+{
+  "EnvironmentVariables": [
+    {
+      "SchemaName": "mp_ExampleApiUrl",
+      "Value": "https://dev-api.example.com"
+    },
+    {
+      "SchemaName": "mp_ExampleApiKey",
+      "Value": "${MAINSOLUTION_EXAMPLE_API_KEY}"
+    }
+  ],
+  "ConnectionReferences": []
+}
