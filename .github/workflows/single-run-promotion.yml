@@ -96,13 +96,58 @@ jobs:
           echo "$FILTERED_MATRIX"
           echo "Any changed solutions: $ANY_CHANGED"
 
-  build-artifacts:
+  generate-version:
     needs: build-matrix
     if: ${{ needs.build-matrix.outputs.any_changed == 'true' }}
     runs-on: ubuntu-latest
 
     outputs:
-      version: ${{ steps.solution_version.outputs.version }}
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate release version
+        id: version
+        shell: bash
+        run: |
+          YEAR=$(date +'%Y')
+          DAY_OF_YEAR=$(date +'%j')
+
+          echo "Year: $YEAR"
+          echo "Day of year: $DAY_OF_YEAR"
+
+          # Remove leading zeros (001 → 1)
+          DAY_OF_YEAR=$((10#$DAY_OF_YEAR))
+
+          # Get today's releases
+          TAG_PREFIX="v$YEAR.$DAY_OF_YEAR."
+
+          TAGS=$(git tag | grep "^$TAG_PREFIX" || true)
+
+          if [ -z "$TAGS" ]; then
+            RELEASE=1
+          else
+            MAX=$(echo "$TAGS" | sed -E "s/v$YEAR\.$DAY_OF_YEAR\.([0-9]+)\..*/\1/" | sort -n | tail -n 1)
+            RELEASE=$((MAX + 1))
+          fi
+
+          HOTFIX=0
+
+          VERSION="$YEAR.$DAY_OF_YEAR.$RELEASE.$HOTFIX"
+
+          echo "Generated version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+  build-artifacts:
+    needs:
+      - build-matrix
+      - generate-version
+    if: ${{ needs.build-matrix.outputs.any_changed == 'true' }}
+    runs-on: ubuntu-latest
 
     strategy:
       fail-fast: true
@@ -136,87 +181,10 @@ jobs:
             exit 1
           }
 
-      - name: Generate dynamic version
-        id: version
-        shell: bash
-        run: |
-          YEAR=$(date +'%Y')
-          DAY_OF_YEAR=$(date +'%j')
-
-          echo "Year: $YEAR"
-          echo "Day of year: $DAY_OF_YEAR"
-
-          # Remove leading zeros (001 → 1)
-          DAY_OF_YEAR=$((10#$DAY_OF_YEAR))
-
-          # Get today's releases
-          TAG_PREFIX="v$YEAR.$DAY_OF_YEAR."
-
-          TAGS=$(git tag | grep "^$TAG_PREFIX" || true)
-
-          if [ -z "$TAGS" ]; then
-            RELEASE=1
-          else
-            MAX=$(echo "$TAGS" | sed -E "s/v$YEAR\.$DAY_OF_YEAR\.([0-9]+)\..*/\1/" | sort -n | tail -n 1)
-            RELEASE=$((MAX + 1))
-          fi
-
-          HOTFIX=0
-
-          VERSION="$YEAR.$DAY_OF_YEAR.$RELEASE.$HOTFIX"
-
-          echo "Generated version: $VERSION"
-
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "year=$YEAR" >> $GITHUB_OUTPUT
-          echo "day=$DAY_OF_YEAR" >> $GITHUB_OUTPUT
-          echo "release=$RELEASE" >> $GITHUB_OUTPUT
-          echo "hotfix=$HOTFIX" >> $GITHUB_OUTPUT
-
-      - name: Determine version for ${{ matrix.name }}
-        id: solution_version
-        shell: bash
-        run: |
-          echo "Checking if solution changed..."
-
-          if git diff --quiet HEAD^ HEAD -- solutions/${{ matrix.name }}/src; then
-            echo "No changes detected"
-
-            LAST_COMMIT=$(git log -n 1 --pretty=format:%H -- solutions/${{ matrix.name }}/src)
-            LAST_TAG=$(git tag --contains $LAST_COMMIT | head -n 1)
-
-            if [ -z "$LAST_TAG" ]; then
-              echo "No previous tag found, defaulting to generated version"
-              VERSION="${{ steps.version.outputs.version }}"
-            elif [[ "$LAST_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-              VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}.${BASH_REMATCH[4]}"
-              echo "Reusing version $VERSION from tag $LAST_TAG"
-            else
-              echo "Previous tag $LAST_TAG has invalid format, defaulting to generated version"
-              VERSION="${{ steps.version.outputs.version }}"
-            fi
-          else
-            echo "Changes detected"
-            VERSION="${{ steps.version.outputs.version }}"
-          fi
-
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "ERROR: Invalid version format: $VERSION" >&2
-            exit 1
-          fi
-
-          IFS='.' read -r YEAR DAY RELEASE HOTFIX <<< "$VERSION"
-
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "year=$YEAR" >> $GITHUB_OUTPUT
-          echo "day=$DAY" >> $GITHUB_OUTPUT
-          echo "release=$RELEASE" >> $GITHUB_OUTPUT
-          echo "hotfix=$HOTFIX" >> $GITHUB_OUTPUT
-
       - name: Set full solution version
         shell: bash
         run: |
-          VERSION="${{ steps.solution_version.outputs.year }}.${{ steps.solution_version.outputs.day }}.${{ steps.solution_version.outputs.release }}.${{ steps.solution_version.outputs.hotfix }}"
+          VERSION="${{ needs.generate-version.outputs.version }}"
 
           echo "Setting solution version to $VERSION"
 
@@ -236,7 +204,7 @@ jobs:
         uses: microsoft/powerplatform-actions/pack-solution@v1
         with:
           solution-folder: solutions/${{ matrix.name }}/src
-          solution-file: out/${{ matrix.name }}_${{ steps.solution_version.outputs.version }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ needs.generate-version.outputs.version }}_managed.zip
           solution-type: Managed
 
       - name: Authenticate to Power Platform for solution check
@@ -258,7 +226,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: solution-checker-${{ matrix.name }}-${{ steps.solution_version.outputs.version }}
+          name: solution-checker-${{ matrix.name }}-${{ needs.generate-version.outputs.version }}
           path: |
             out/${{ matrix.name }}_checker_results.zip
             out/${{ matrix.name }}_checker_results/**
@@ -266,14 +234,15 @@ jobs:
       - name: Upload artifact for ${{ matrix.name }}
         uses: actions/upload-artifact@v7
         with:
-          name: managed-${{ matrix.name }}-${{ steps.solution_version.outputs.version }}
-          path: out/${{ matrix.name }}_${{ steps.solution_version.outputs.version }}_managed.zip
+          name: managed-${{ matrix.name }}-${{ needs.generate-version.outputs.version }}
+          path: out/${{ matrix.name }}_${{ needs.generate-version.outputs.version }}_managed.zip
           if-no-files-found: error
 
   create-release-tag:
     if: ${{ needs.build-matrix.outputs.any_changed == 'true' }}
     needs:
       - build-matrix
+      - generate-version
       - build-artifacts
     runs-on: ubuntu-latest
 
@@ -290,7 +259,7 @@ jobs:
         id: tag
         shell: bash
         run: |
-          TAG="${{ needs.build-artifacts.outputs.version }}"
+          TAG="${{ needs.generate-version.outputs.version }}"
           echo "tag_name=$TAG" >> "$GITHUB_OUTPUT"
 
           if git rev-parse "$TAG" >/dev/null 2>&1; then
@@ -310,8 +279,8 @@ jobs:
       - name: Create GitHub release if missing
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: v${{ needs.build-artifacts.outputs.version }}
-          name: Release v${{ needs.build-artifacts.outputs.version }}
+          tag_name: v${{ needs.generate-version.outputs.version }}
+          name: Release v${{ needs.generate-version.outputs.version }}
           generate_release_notes: true
           draft: false
           prerelease: false
@@ -320,6 +289,7 @@ jobs:
     if: ${{ needs.build-matrix.outputs.any_changed == 'true' }}
     needs:
       - build-matrix
+      - generate-version
       - build-artifacts
       - create-release-tag
     runs-on: ubuntu-latest
@@ -340,7 +310,7 @@ jobs:
       - name: Download artifact
         uses: actions/download-artifact@v7
         with:
-          name: managed-${{ matrix.name }}-${{ needs.build-artifacts.outputs.version }}
+          name: managed-${{ matrix.name }}-${{ needs.generate-version.outputs.version }}
           path: out
 
       - name: Import ${{ matrix.name }} to DEV
@@ -349,7 +319,7 @@ jobs:
           environment-url: ${{ vars.DEV_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/${{ matrix.name }}_${{ needs.build-artifacts.outputs.version }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ needs.generate-version.outputs.version }}_managed.zip
           force-overwrite: true
           publish-changes: true
 
@@ -357,6 +327,7 @@ jobs:
     if: ${{ needs.build-matrix.outputs.any_changed == 'true' }}
     needs:
       - build-matrix
+      - generate-version
       - build-artifacts
       - create-release-tag
       - deploy-dev
@@ -378,7 +349,7 @@ jobs:
       - name: Download artifact for ${{ matrix.name }}
         uses: actions/download-artifact@v7
         with:
-          name: managed-${{ matrix.name }}-${{ needs.build-artifacts.outputs.version }}
+          name: managed-${{ matrix.name }}-${{ needs.generate-version.outputs.version }}
           path: out
 
       - name: Import ${{ matrix.name }} to QA
@@ -387,7 +358,7 @@ jobs:
           environment-url: ${{ vars.QA_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/${{ matrix.name }}_${{ needs.build-artifacts.outputs.version }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ needs.generate-version.outputs.version }}_managed.zip
           force-overwrite: true
           publish-changes: true
 
@@ -395,6 +366,7 @@ jobs:
     if: ${{ needs.build-matrix.outputs.any_changed == 'true' }}
     needs:
       - build-matrix
+      - generate-version
       - build-artifacts
       - create-release-tag
       - deploy-dev
@@ -417,7 +389,7 @@ jobs:
       - name: Download artifact for ${{ matrix.name }}
         uses: actions/download-artifact@v7
         with:
-          name: managed-${{ matrix.name }}-${{ needs.build-artifacts.outputs.version }}
+          name: managed-${{ matrix.name }}-${{ needs.generate-version.outputs.version }}
           path: out
 
       - name: Import ${{ matrix.name }} to PREP
@@ -426,7 +398,7 @@ jobs:
           environment-url: ${{ vars.PREP_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/${{ matrix.name }}_${{ needs.build-artifacts.outputs.version }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ needs.generate-version.outputs.version }}_managed.zip
           force-overwrite: true
           publish-changes: true
 
@@ -434,6 +406,7 @@ jobs:
     if: ${{ needs.build-matrix.outputs.any_changed == 'true' }}
     needs:
       - build-matrix
+      - generate-version
       - build-artifacts
       - create-release-tag
       - deploy-dev
@@ -457,7 +430,7 @@ jobs:
       - name: Download artifact for ${{ matrix.name }}
         uses: actions/download-artifact@v7
         with:
-          name: managed-${{ matrix.name }}-${{ needs.build-artifacts.outputs.version }}
+          name: managed-${{ matrix.name }}-${{ needs.generate-version.outputs.version }}
           path: out
 
       - name: Import ${{ matrix.name }} to PROD
@@ -466,6 +439,6 @@ jobs:
           environment-url: ${{ vars.PROD_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/${{ matrix.name }}_${{ needs.build-artifacts.outputs.version }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ needs.generate-version.outputs.version }}_managed.zip
           force-overwrite: true
           publish-changes: true
