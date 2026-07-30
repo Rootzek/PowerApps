@@ -60,3 +60,98 @@ L'export d'une solution Power Apps reflète l'état complet de la solution dans 
 - `backup-dev-changes` exporte un snapshot de secours d'un environnement de développement sans pousser quoi que ce soit dans Git.
 - `capture-dev-changes` bloque les captures obsolètes puis exporte les solutions modifiées vers la branche de feature.
 - `single-run-promotion` promeut les changements mergés dans `main`.
+
+## Gestion des variables d'environnement
+
+Chaque solution peut déclarer ses variables d'environnement Power Apps dans des fichiers de deployment settings versionnés dans Git. Ces fichiers sont appliqués automatiquement à chaque déploiement par le pipeline, sans saisie manuelle.
+
+### Structure des fichiers
+
+Pour chaque solution, les fichiers de settings sont organisés par environnement cible :
+
+```
+solutions/
+  <NomDeLaSolution>/
+    src/                    # code source Power Apps (existant)
+    env-settings/
+      dev.json
+      qa.json
+      prep.json
+      prod.json
+```
+
+### Format d'un fichier de settings
+
+Chaque fichier suit le format standard Power Platform :
+
+```json
+{
+  "EnvironmentVariables": [
+    {
+      "SchemaName": "mp_NomDeVariable",
+      "Value": "valeur-littérale-pour-cet-environnement"
+    },
+    {
+      "SchemaName": "mp_CleApi",
+      "Value": "${NOM_DU_SECRET_GITHUB}"
+    }
+  ],
+  "ConnectionReferences": []
+}
+```
+
+- Les valeurs **non-sensibles** (URL de portail, feature flags, etc.) sont inscrites directement dans le fichier JSON.
+- Les valeurs **sensibles** (clés API, mots de passe, etc.) utilisent un placeholder au format `${NOM_DU_SECRET}`. Ce placeholder est remplacé par la vraie valeur au moment de l'exécution du pipeline, en lisant un GitHub Secret ou une GitHub Variable.
+
+### Ajouter une nouvelle variable d'environnement
+
+1. **Créer la variable dans Power Apps** via Power Apps Studio ou le portail maker (type `string`, `number`, etc.).
+
+2. **Ajouter l'entrée dans les fichiers de settings** pour chaque environnement concerné (`dev.json`, `qa.json`, `prep.json`, `prod.json`) :
+   - Pour une valeur non-sensible : écrire la valeur directement.
+   - Pour une valeur sensible : écrire un placeholder `${MON_SECRET}`.
+
+3. **Si un placeholder est utilisé**, ajouter le secret ou la variable correspondante dans GitHub :
+   - GitHub Secrets → `Settings > Secrets and variables > Actions > Secrets`
+   - GitHub Variables → `Settings > Secrets and variables > Actions > Variables`
+   - Utiliser un nom de variable ou de secret distinct par environnement si les valeurs diffèrent (ex. : `QA_API_KEY`, `PROD_API_KEY`).
+
+4. **Déclarer l'injection dans le workflow** : dans `single-run-promotion.yml` et `deploy-from-manifest.yml`, repérer le step `Prepare deployment settings` du job correspondant à l'environnement et ajouter une ligne `export` pour chaque nouveau placeholder :
+
+   ```yaml
+   - name: Prepare deployment settings for ${{ matrix.name }}
+     id: settings
+     shell: bash
+     run: |
+       FILE="solutions/${{ matrix.name }}/env-settings/qa.json"
+       if [ -f "$FILE" ]; then
+         export MON_SECRET="${{ secrets.QA_MON_SECRET }}"
+         export MA_VARIABLE="${{ vars.QA_MA_VARIABLE }}"
+         envsubst < "$FILE" > "${FILE}.tmp" && mv "${FILE}.tmp" "$FILE"
+         ...
+   ```
+
+5. **Commit et merger** les modifications de fichiers JSON et de workflows sur `main`. Le pipeline appliquera les nouvelles valeurs dès le prochain déploiement.
+
+### Modifier la valeur d'une variable existante
+
+- **Valeur non-sensible** : modifier directement la valeur dans le fichier JSON de l'environnement concerné, puis commit.
+- **Valeur sensible** : mettre à jour le GitHub Secret ou la GitHub Variable correspondant dans les paramètres du dépôt. Aucune modification de fichier Git n'est nécessaire.
+
+### Supprimer une variable d'environnement
+
+1. Retirer l'entrée correspondante dans tous les fichiers `env-settings/<env>.json` concernés.
+2. Si un placeholder était utilisé, supprimer la ligne `export` dans les steps d'injection des workflows, ainsi que le GitHub Secret ou Variable associé.
+3. Supprimer la variable dans Power Apps Studio si elle n'est plus utilisée par aucune solution.
+4. Commit et merger sur `main`.
+
+### Déclarer qu'une solution a des settings (manifest)
+
+Le champ optionnel `has_env_settings: true` dans les fichiers `manifests/<env>/release.yml` et `manifests/releases/current.yml` sert à documenter qu'une solution utilise des variables d'environnement. Le pipeline détecte automatiquement la présence du fichier JSON au runtime, donc ce champ n'est pas obligatoire pour le bon fonctionnement — il est informatif.
+
+```yaml
+solutions:
+  - name: "MainSolution"
+    order: 10
+    has_env_settings: true
+```

@@ -5,6 +5,8 @@ release:
 solutions:
   - name: "MainSolution"
     order: 10
+    has_env_settings: true
 
   - name: "SurveysSolution"
     order: 20
+    has_env_settings: true
