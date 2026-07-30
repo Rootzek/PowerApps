@@ -1,0 +1,113 @@
+name: validate-pr
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'solutions/**/src/**'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-matrix:
+    runs-on: ubuntu-latest
+
+    outputs:
+      matrix: ${{ steps.manifest.outputs.matrix }}
+      any_changed: ${{ steps.manifest.outputs.any_changed }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install yq + jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+          pip install yq
+
+      - name: Detect changed solutions
+        id: manifest
+        shell: bash
+        run: |
+          FILE="manifests/releases/current.yml"
+          MANIFEST_SOLUTIONS=$(yq '.solutions' "$FILE" | jq -c '{include: sort_by(.order)}')
+
+          FILTERED_MATRIX='{"include": []}'
+          ANY_CHANGED=false
+
+          while IFS=$'\n' read -r item; do
+            NAME=$(echo "$item" | jq -r '.name')
+            ORDER=$(echo "$item" | jq -r '.order')
+
+            if ! git diff --quiet "origin/${{ github.base_ref }}" HEAD -- "solutions/$NAME/src"; then
+              FILTERED_MATRIX=$(jq -c --arg name "$NAME" --argjson order "$ORDER" '.include += [{name: $name, order: $order}]' <<< "$FILTERED_MATRIX")
+              ANY_CHANGED=true
+            fi
+          done < <(jq -c '.include[]' <<< "$MANIFEST_SOLUTIONS")
+
+          echo "matrix=$FILTERED_MATRIX" >> "$GITHUB_OUTPUT"
+          echo "any_changed=$ANY_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "Changed solutions matrix:"
+          echo "$FILTERED_MATRIX"
+          echo "Any changed solutions: $ANY_CHANGED"
+
+  validate:
+    needs: build-matrix
+    if: ${{ needs.build-matrix.outputs.any_changed == 'true' }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Validate solution folder exists
+        shell: bash
+        run: |
+          test -d "solutions/${{ matrix.name }}/src" || {
+            echo "::error::Folder not found: solutions/${{ matrix.name }}/src"
+            exit 1
+          }
+
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      - name: Pack ${{ matrix.name }} as unmanaged
+        uses: microsoft/powerplatform-actions/pack-solution@v1
+        with:
+          solution-folder: solutions/${{ matrix.name }}/src
+          solution-file: out/${{ matrix.name }}.zip
+          solution-type: Unmanaged
+
+      - name: Authenticate to Power Platform for solution check
+        shell: bash
+        run: |
+          "$POWERPLATFORMTOOLS_PACPATH" auth create \
+            --environment "${{ vars.DEV_ENV_URL }}" \
+            --applicationId "${{ secrets.PP_CLIENT_ID }}" \
+            --tenant "${{ secrets.PP_TENANT_ID }}" \
+            --githubFederated
+
+      - name: Validate solution health
+        shell: bash
+        run: |
+          chmod +x .github/scripts/check-solution-health.sh
+          .github/scripts/check-solution-health.sh "out/${{ matrix.name }}.zip" "${{ matrix.name }}"
+
+      - name: Upload solution checker report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: solution-checker-${{ matrix.name }}-pr${{ github.event.pull_request.number }}
+          path: |
+            out/${{ matrix.name }}_checker_results.zip
+            out/${{ matrix.name }}_checker_results/**
