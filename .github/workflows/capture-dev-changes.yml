@@ -32,11 +32,15 @@ jobs:
       matrix: ${{ steps.build.outputs.matrix }}
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
       - name: Build solution matrix
         id: build
         shell: bash
         run: |
-          MATRIX_JSON=$(jq -n --arg solutions "${{ inputs.solutions }}" -c '{include: ($solutions | split(",") | map(gsub("^\\s+|\\s+$";"") | {name: .}))}')
+          chmod +x .github/scripts/build-solution-matrix.sh
+          MATRIX_JSON=$(.github/scripts/build-solution-matrix.sh "${{ inputs.solutions }}")
           echo "matrix=$MATRIX_JSON" >> "$GITHUB_OUTPUT"
           echo "Generated matrix:"
           echo "$MATRIX_JSON"
@@ -80,63 +84,26 @@ jobs:
           echo "env_url=$ENV_URL" >> "$GITHUB_OUTPUT"
           echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
 
+      - name: Make scripts executable
+        shell: bash
+        run: |
+          chmod +x .github/scripts/checkout-or-create-branch.sh
+          chmod +x .github/scripts/check-stale-capture.sh
+          chmod +x .github/scripts/rebase-onto-main.sh
+          chmod +x .github/scripts/check-solution-health.sh
+
       - name: Prepare branch for validation
         run: |
-          BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-
-          # Clean any uncommitted changes to ensure clean working directory.
-          git reset --hard HEAD
-          git clean -fd
-
-          git fetch --prune origin
-
-          if git ls-remote --heads origin "$BRANCH_NAME" | grep -q .; then
-            echo "Branch '$BRANCH_NAME' already exists. Checking out and updating."
-            git checkout -B "$BRANCH_NAME" "origin/$BRANCH_NAME"
-          else
-            echo "::error::Branch '$BRANCH_NAME' does not exist. Prepare the environment from main before capturing changes."
-            {
-              echo "## ❌ Capture blocked"
-              echo ""
-              echo "Branch **$BRANCH_NAME** does not exist yet."
-              echo "Run **prepare-dev-environment** first so the environment and branch share the same Git baseline before any maker changes are captured."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
+          .github/scripts/checkout-or-create-branch.sh "${{ inputs.environment }}/${{ inputs.branch_suffix }}" true
 
       - name: Block stale environment capture
         shell: bash
         run: |
-          BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
-          BASE_SHA=$(git merge-base HEAD origin/main)
-
-          if [ -z "$BASE_SHA" ]; then
-            echo "::error::Unable to determine merge-base between '$BRANCH_NAME' and origin/main."
-            exit 1
-          fi
-
-          if git diff --quiet "$BASE_SHA" origin/main -- "solutions/${{ matrix.name }}/src"; then
-            echo "No newer main changes detected for solutions/${{ matrix.name }}/src since $BASE_SHA"
-            exit 0
-          fi
-
-          echo "::error::Capture blocked for '${{ matrix.name }}': main changed after branch '$BRANCH_NAME' diverged. Refresh the dev environment from the latest branch baseline before exporting."
-          {
-            echo "## ❌ Capture blocked"
-            echo ""
-            echo "Solution **${{ matrix.name }}** changed on **main** after branch **$BRANCH_NAME** diverged from commit **$BASE_SHA**."
-            echo "Exporting from this environment could overwrite changes already merged to main."
-            echo ""
-            echo "Required action:"
-            echo "1. If the environment contains maker work that is not captured elsewhere, run **backup-dev-changes** first for **${{ inputs.environment }}** and **${{ matrix.name }}**."
-            echo "2. Rebase or merge the branch with the latest **main** locally."
-            echo "3. Run **prepare-dev-environment** again for **${{ inputs.environment }}**."
-            echo "4. Re-apply or re-validate maker changes in the refreshed environment."
-            echo "5. Run **capture-dev-changes** again."
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit 1
+          .github/scripts/check-stale-capture.sh \
+            "${{ inputs.environment }}/${{ inputs.branch_suffix }}" \
+            "${{ inputs.environment }}" \
+            "${{ matrix.name }}" \
+            "solutions/${{ matrix.name }}/src"
 
       - name: Install Power Platform Tools
         uses: microsoft/powerplatform-actions/actions-install@v1
@@ -173,7 +140,6 @@ jobs:
       - name: Validate solution health
         shell: bash
         run: |
-          chmod +x .github/scripts/check-solution-health.sh
           .github/scripts/check-solution-health.sh "out/${{ matrix.name }}.zip" "${{ matrix.name }}"
 
       - name: Upload solution checker report
@@ -187,59 +153,11 @@ jobs:
 
       - name: Prepare branch for rebase
         run: |
-          BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          
-          # Clean any uncommitted changes to ensure clean working directory
-          git reset --hard HEAD
-          git clean -fd
-          
-          git fetch --prune origin
-
-          # Checkout existing branch or create new one.
-          if git ls-remote --heads origin "$BRANCH_NAME" | grep -q .; then
-            echo "Branch '$BRANCH_NAME' already exists. Checking out and updating."
-            git checkout -B "$BRANCH_NAME" "origin/$BRANCH_NAME"
-          else
-            echo "Creating new branch '$BRANCH_NAME'."
-            git checkout -B "$BRANCH_NAME"
-          fi
+          .github/scripts/checkout-or-create-branch.sh "${{ inputs.environment }}/${{ inputs.branch_suffix }}" false
 
       - name: Rebase on main
         run: |
-          BRANCH_NAME="${{ inputs.environment }}/${{ inputs.branch_suffix }}"
-
-          # Working tree is guaranteed clean at this point (reset --hard + clean -fd
-          # in the previous step, nothing staged since), so the rebase can proceed
-          # without the "you have uncommitted changes" error.
-          if git ls-remote --heads origin main | grep -q .; then
-            if ! git rebase origin/main; then
-              git rebase --abort
-
-              echo "::error::Rebase of '$BRANCH_NAME' onto origin/main hit conflicts and was aborted. Resolve locally and push manually."
-              {
-                echo "## ❌ Rebase conflict"
-                echo ""
-                echo "Branch **$BRANCH_NAME** could not be automatically rebased onto **main**."
-                echo "Resolve it locally, then push the result so this workflow can pick it up on the next run:"
-                echo ""
-                echo '```bash'
-                echo "git fetch origin"
-                echo "git checkout $BRANCH_NAME"
-                echo "git rebase origin/main"
-                echo "# fix conflicts in the affected files, then:"
-                echo "git add ."
-                echo "git rebase --continue"
-                echo "git push --force-with-lease origin $BRANCH_NAME"
-                echo '```'
-              } >> "$GITHUB_STEP_SUMMARY"
-
-              exit 1
-            fi
-          fi
-
-          echo "✅ Rebase successful"
+          .github/scripts/rebase-onto-main.sh "${{ inputs.environment }}/${{ inputs.branch_suffix }}"
 
       - name: Clean ${{ matrix.name }} solution folder
         run: |
