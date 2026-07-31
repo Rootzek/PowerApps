@@ -137,7 +137,7 @@ Chaque fichier suit le format standard Power Platform :
    - GitHub Variables → `Settings > Secrets and variables > Actions > Variables`
    - Utiliser un nom de variable ou de secret distinct par environnement si les valeurs diffèrent (ex. : `QA_API_KEY`, `PROD_API_KEY`).
 
-4. **Déclarer l'injection dans le workflow** : dans `single-run-promotion.yml` et `deploy-from-manifest.yml`, repérer le step `Prepare deployment settings` du job correspondant à l'environnement et ajouter une ligne `export` pour chaque nouveau placeholder :
+4. **Déclarer l'injection dans le workflow** : dans `single-run-promotion.yml`, repérer le step `Prepare deployment settings for ${{ matrix.name }}` du job correspondant à l'environnement (`deploy-dev`, `deploy-qa`, `deploy-prep`, `deploy-prod`) et ajouter une ligne `export` pour chaque nouveau placeholder :
 
    ```yaml
    - name: Prepare deployment settings for ${{ matrix.name }}

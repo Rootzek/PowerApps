@@ -252,46 +252,12 @@ jobs:
           path: out/${{ matrix.name }}_${{ needs.generate-version.outputs.version }}_managed.zip
           if-no-files-found: error
 
-  create-release-tag:
-    if: ${{ needs.build-matrix.outputs.any_changed == 'true' }}
-    needs:
-      - build-matrix
-      - generate-version
-      - build-artifacts
-    runs-on: ubuntu-latest
-
-    outputs:
-      tag_name: ${{ steps.tag.outputs.tag_name }}
-
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Create and push Git tag if missing
-        id: tag
-        shell: bash
-        run: |
-          chmod +x .github/scripts/create-release-tag.sh
-          .github/scripts/create-release-tag.sh "${{ needs.generate-version.outputs.version }}"
-
-      - name: Create GitHub release if missing
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: v${{ needs.generate-version.outputs.version }}
-          name: Release v${{ needs.generate-version.outputs.version }}
-          generate_release_notes: true
-          draft: false
-          prerelease: false
-
   deploy-dev:
     if: ${{ needs.build-matrix.outputs.any_changed == 'true' }}
     needs:
       - build-matrix
       - generate-version
       - build-artifacts
-      - create-release-tag
     runs-on: ubuntu-latest
     environment: dev
 
@@ -349,7 +315,6 @@ jobs:
       - build-matrix
       - generate-version
       - build-artifacts
-      - create-release-tag
       - deploy-dev
     runs-on: ubuntu-latest
     environment: qa
@@ -408,7 +373,6 @@ jobs:
       - build-matrix
       - generate-version
       - build-artifacts
-      - create-release-tag
       - deploy-dev
       - deploy-qa
     runs-on: ubuntu-latest
@@ -462,16 +426,39 @@ jobs:
           force-overwrite: true
           publish-changes: true
 
+  approve-production-release:
+    # Explicit manual gate before prod. Configure "Required reviewers" on the
+    # "prod-approval" GitHub Environment (Settings > Environments) so this job
+    # pauses for sign-off instead of deploying to prod automatically.
+    if: ${{ needs.build-matrix.outputs.any_changed == 'true' }}
+    needs:
+      - build-matrix
+      - generate-version
+      - build-artifacts
+      - deploy-dev
+      - deploy-qa
+      - deploy-prep
+    runs-on: ubuntu-latest
+    environment: prod-approval
+
+    steps:
+      - name: Production deployment approved
+        shell: bash
+        run: |
+          echo "## ✅ Production approval granted" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Version **${{ needs.generate-version.outputs.version }}** approved for deployment to **prod**." >> "$GITHUB_STEP_SUMMARY"
+
   deploy-prod:
     if: ${{ needs.build-matrix.outputs.any_changed == 'true' }}
     needs:
       - build-matrix
       - generate-version
       - build-artifacts
-      - create-release-tag
       - deploy-dev
       - deploy-qa
       - deploy-prep
+      - approve-production-release
     runs-on: ubuntu-latest
     environment: prod
 
@@ -522,3 +509,43 @@ jobs:
           solution-file: out/${{ matrix.name }}_${{ needs.generate-version.outputs.version }}_managed.zip
           force-overwrite: true
           publish-changes: true
+
+  create-release-tag:
+    # Runs only after every environment has been deployed successfully, so a
+    # Git tag / GitHub Release is never created for a version that failed to
+    # reach prod.
+    if: ${{ needs.build-matrix.outputs.any_changed == 'true' }}
+    needs:
+      - build-matrix
+      - generate-version
+      - build-artifacts
+      - deploy-dev
+      - deploy-qa
+      - deploy-prep
+      - deploy-prod
+    runs-on: ubuntu-latest
+
+    outputs:
+      tag_name: ${{ steps.tag.outputs.tag_name }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Create and push Git tag if missing
+        id: tag
+        shell: bash
+        run: |
+          chmod +x .github/scripts/create-release-tag.sh
+          .github/scripts/create-release-tag.sh "${{ needs.generate-version.outputs.version }}"
+
+      - name: Create GitHub release if missing
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ needs.generate-version.outputs.version }}
+          name: Release v${{ needs.generate-version.outputs.version }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
