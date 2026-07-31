@@ -4,12 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Dev environment to capture from'
+        description: 'Dev environment key (format: dev_<slug>, e.g. dev_user1, dev_user3). Requires matching DEV_<SLUG>_ENV_URL / DEV_<SLUG>_ENV_ID variables and a GitHub Environment of the same name.'
         required: true
-        type: choice
-        options:
-          - dev_user1
-          - dev_user2
+        type: string
       branch_suffix:
         description: 'Suffix for the branch name. Final branch will be <environment>/<branch_suffix>'
         required: true
@@ -62,6 +59,26 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Resolve dev environment prefix
+        id: env-prefix
+        uses: ./.github/actions/resolve-dev-environment
+        with:
+          environment: ${{ inputs.environment }}
+
+      - name: Set environment variables
+        id: set-env
+        shell: bash
+        env:
+          ENV_URL: ${{ vars[format('{0}_ENV_URL', steps.env-prefix.outputs.prefix)] }}
+          ENV_ID: ${{ vars[format('{0}_ENV_ID', steps.env-prefix.outputs.prefix)] }}
+        run: |
+          if [ -z "$ENV_URL" ] || [ -z "$ENV_ID" ]; then
+            echo "::error::Missing repository/environment variables for dev environment '${{ inputs.environment }}'. Expected '${{ steps.env-prefix.outputs.prefix }}_ENV_URL' and '${{ steps.env-prefix.outputs.prefix }}_ENV_ID' to be defined."
+            exit 1
+          fi
+          echo "env_url=$ENV_URL" >> "$GITHUB_OUTPUT"
+          echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
 
       - name: Prepare branch for validation
         run: |
@@ -120,20 +137,6 @@ jobs:
             echo "5. Run **capture-dev-changes** again."
           } >> "$GITHUB_STEP_SUMMARY"
           exit 1
-
-      - name: Set environment variables
-        id: set-env
-        shell: bash
-        run: |
-          if [ "${{ inputs.environment }}" = "dev_user1" ]; then
-            ENV_URL="${{ vars.DEV_USER1_ENV_URL }}"
-            ENV_ID="${{ vars.DEV_USER1_ENV_ID }}"
-          else
-            ENV_URL="${{ vars.DEV_USER2_ENV_URL }}"
-            ENV_ID="${{ vars.DEV_USER2_ENV_ID }}"
-          fi
-          echo "env_url=$ENV_URL" >> "$GITHUB_OUTPUT"
-          echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
 
       - name: Install Power Platform Tools
         uses: microsoft/powerplatform-actions/actions-install@v1

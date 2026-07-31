@@ -61,6 +61,27 @@ L'export d'une solution Power Apps reflète l'état complet de la solution dans 
 - `capture-dev-changes` bloque les captures obsolètes puis exporte les solutions modifiées vers la branche de feature.
 - `single-run-promotion` promeut les changements mergés dans `main`.
 
+### Convention de nommage des environnements de développement (scalabilité)
+
+Les workflows `prepare-dev-environment`, `capture-dev-changes` et `backup-dev-changes` ne codent plus en dur une liste fixe de développeurs. Ils utilisent une convention de nommage résolue dynamiquement par la composite action `.github/actions/resolve-dev-environment`.
+
+Convention:
+
+- La clé d'environnement doit respecter le format `dev_<slug>` (lettres minuscules et chiffres uniquement), par exemple `dev_user1`, `dev_user3`, `dev_alice`.
+- Pour une clé `dev_<slug>`, les variables associées doivent s'appeler `DEV_<SLUG_MAJUSCULE>_ENV_URL` et `DEV_<SLUG_MAJUSCULE>_ENV_ID`. Exemple: `dev_user3` → `DEV_USER3_ENV_URL` / `DEV_USER3_ENV_ID`.
+- Un GitHub Environment du même nom (`dev_user3`) doit exister dans les paramètres du dépôt, pour porter les protections et secrets propres à cet environnement.
+
+Si une variable attendue est manquante, le workflow échoue immédiatement avec un message indiquant les deux noms de variables attendus, plutôt que de retomber silencieusement sur un autre environnement.
+
+### Onboarding d'un nouveau développeur
+
+Ajouter un développeur ne nécessite plus de modifier les workflows. Il suffit de:
+
+1. Créer un GitHub Environment nommé `dev_<slug>` dans les paramètres du dépôt.
+2. Ajouter les variables `DEV_<SLUG_MAJUSCULE>_ENV_URL` et `DEV_<SLUG_MAJUSCULE>_ENV_ID` (au niveau du dépôt ou de cet Environment).
+3. Ajouter, si nécessaire, les secrets propres à cet Environment.
+4. Lancer `prepare-dev-environment` en indiquant `dev_<slug>` comme valeur du champ `environment` (champ texte libre, plus une liste déroulante fixe).
+
 ## Gestion des variables d'environnement
 
 Chaque solution peut déclarer ses variables d'environnement Power Apps dans des fichiers de deployment settings versionnés dans Git. Ces fichiers sont appliqués automatiquement à chaque déploiement par le pipeline, sans saisie manuelle.
