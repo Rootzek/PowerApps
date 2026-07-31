@@ -296,7 +296,7 @@ jobs:
           environment-url: ${{ vars.DEV_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/${{ matrix.name }}_${{ needs.build-artifacts.outputs.version }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ needs.generate-version.outputs.version }}_managed.zip
           force-overwrite: true
           publish-changes: true
           deployment-settings-file: ${{ steps.settings.outputs.settings_file }}
@@ -354,7 +354,7 @@ jobs:
           environment-url: ${{ vars.QA_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/${{ matrix.name }}_${{ needs.build-artifacts.outputs.version }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ needs.generate-version.outputs.version }}_managed.zip
           force-overwrite: true
           publish-changes: true
           deployment-settings-file: ${{ steps.settings.outputs.settings_file }}
@@ -413,7 +413,7 @@ jobs:
           environment-url: ${{ vars.PREP_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/${{ matrix.name }}_${{ needs.build-artifacts.outputs.version }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ needs.generate-version.outputs.version }}_managed.zip
           force-overwrite: true
           publish-changes: true
           deployment-settings-file: ${{ steps.settings.outputs.settings_file }}
@@ -497,7 +497,7 @@ jobs:
           environment-url: ${{ vars.PROD_ENV_URL }}
           app-id: ${{ secrets.PP_CLIENT_ID }}
           tenant-id: ${{ secrets.PP_TENANT_ID }}
-          solution-file: out/${{ matrix.name }}_${{ needs.build-artifacts.outputs.version }}_managed.zip
+          solution-file: out/${{ matrix.name }}_${{ needs.generate-version.outputs.version }}_managed.zip
           force-overwrite: true
           publish-changes: true
           deployment-settings-file: ${{ steps.settings.outputs.settings_file }}
