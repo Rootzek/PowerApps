@@ -1,13 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Runs the Power Platform Solution Checker against a packed solution and
+# gates the build on the structured SARIF report it produces
+# (https://learn.microsoft.com/power-platform/alm/checker-api/overview#report-format),
+# instead of grepping the CLI's free-form text output. Text parsing was
+# fragile: incidental words like "error" in unrelated output could fail a
+# healthy solution, and a changed CLI message format could silently let
+# real findings pass.
+#
+# Usage: check-solution-health.sh <solution-zip-path> <solution-name> [max-level]
+#   max-level: SARIF "level" that fails the build if present: error|warning|note.
+#              Defaults to "warning" (fails on both "error" and "warning"
+#              findings, ignores "note"/informational).
+
 if [ "$#" -lt 2 ]; then
-  echo "Usage: $0 <solution-zip-path> <solution-name>"
+  echo "Usage: $0 <solution-zip-path> <solution-name> [max-level]"
   exit 1
 fi
 
 SOLUTION_FILE="$1"
 SOLUTION_NAME="$2"
+MAX_LEVEL="${3:-warning}"
+
+case "$MAX_LEVEL" in
+  error|warning|note) ;;
+  *)
+    echo "ERROR: invalid max-level '$MAX_LEVEL' (expected: error, warning, or note)"
+    exit 1
+    ;;
+esac
 
 if [ ! -f "$SOLUTION_FILE" ]; then
   echo "ERROR: Solution file not found: $SOLUTION_FILE"
@@ -20,103 +42,60 @@ if ! command -v "$PAC_CMD" >/dev/null 2>&1; then
   exit 1
 fi
 
+REPORT_DIR="out/${SOLUTION_NAME}_checker_results"
+REPORT_ZIP="out/${SOLUTION_NAME}_checker_results.zip"
+rm -rf "$REPORT_DIR"
+mkdir -p "$REPORT_DIR"
+
 echo "Running Solution Checker for '$SOLUTION_NAME' on '$SOLUTION_FILE'"
+"$PAC_CMD" solution check --path "$SOLUTION_FILE" --outputDirectory "$REPORT_DIR"
 
-auth_output="$($PAC_CMD auth list 2>&1 || true)"
-echo "$auth_output"
-echo ""
-
-commands=(
-  "solution check --path $SOLUTION_FILE"
-  "solution check --solutionUrl $SOLUTION_FILE"
-)
-
-for syntax in "${commands[@]}"; do
-  read -r -a args <<< "$syntax"
-  echo "+ $PAC_CMD ${args[*]}"
-  if output="$($PAC_CMD "${args[@]}" 2>&1)"; then
-    echo "$output"
-
-    # If the tool returned a Results URL, try to download the zip and inspect its contents.
-    result_url=$(echo "$output" | grep -i 'Results' | sed -E 's/.*Results[^:]*: *//I' | tr -d '\r' | grep -oE 'https?://[^[:space:]]+' || true)
-    if [ -n "$result_url" ]; then
-      mkdir -p out
-      report_zip="out/${SOLUTION_NAME}_checker_results.zip"
-      echo "Downloading solution checker results to $report_zip"
-      if curl -fsSL -o "$report_zip" "$result_url"; then
-        echo "Downloaded checker results to $report_zip"
-        report_dir="out/${SOLUTION_NAME}_checker_results"
-        mkdir -p "$report_dir"
-        if unzip -o "$report_zip" -d "$report_dir" >/dev/null 2>&1; then
-          echo "Unzipped checker results to $report_dir"
-        else
-          echo "Warning: failed to unzip $report_zip — continuing with raw zip"
-        fi
-      else
-        echo "Warning: failed to download checker results from $result_url"
-      fi
-    fi
-
-    # If the tool explicitly reports no issues or zero findings, consider this a pass.
-    if echo "$output" | grep -qiE 'no (issues|problems|findings)|0 (issues|problems|findings)|0 (critical|high|medium|low)'; then
-      echo "Solution health check passed via: $PAC_CMD ${args[*]}"
-      exit 0
-    fi
-
-    # Inspect the downloaded report files for severity counts (Critical/High/Medium/Low).
-    if [ -d "out/${SOLUTION_NAME}_checker_results" ]; then
-      # Look for a header line containing 'Critical' and read the next line as counts.
-      header_file=$(grep -Rni --binary-files=without-match -m1 'Critical' "out/${SOLUTION_NAME}_checker_results" | cut -d: -f1 || true)
-      if [ -n "$header_file" ]; then
-        counts_line=$(awk 'tolower($0) ~ /critical/ {getline; print; exit}' "$header_file" 2>/dev/null || true)
-        if [ -n "$counts_line" ]; then
-          for n in $counts_line; do
-            if printf '%s' "$n" | grep -qE '^[0-9]+$'; then
-              if [ "$n" -gt 0 ]; then
-                echo "Solution health check detected severity counts for '$SOLUTION_NAME': $counts_line"
-                echo "$output"
-                exit 1
-              fi
-            fi
-          done
-        fi
-      fi
-
-      # Search within report files for severity words followed by numbers (e.g., 'Medium: 4').
-      if grep -RoiE '(critical|high|medium|low).{0,40}[0-9]+' "out/${SOLUTION_NAME}_checker_results" >/dev/null 2>&1; then
-        echo "Findings detected in checker report files for '$SOLUTION_NAME':"
-        grep -RniE '(critical|high|medium|low).{0,40}[0-9]+' "out/${SOLUTION_NAME}_checker_results" || true
-        exit 1
-      fi
-    fi
-
-    # Detect any reported findings such as "4 medium found" or "Found 4 issues" in CLI output.
-    if echo "$output" | grep -qiE '[0-9]+\s+(critical|high|medium|low)\s+found|found\s+[0-9]+.*(issue|issues|problem|problems)|[0-9]+\s+(critical|high|medium|low)'; then
-      echo "Solution health check detected findings for '$SOLUTION_NAME':"
-      echo "$output"
-      exit 1
-    fi
-
-    # If output contains obvious error/failure text, fail.
-    if echo "$output" | grep -qiE 'error|failed|exception'; then
-      echo "Solution health check failed for '$SOLUTION_NAME' with command: $PAC_CMD ${args[*]}"
-      exit 1
-    fi
-
-    # No indicators of findings or errors detected; treat as pass.
-    echo "Solution health check passed via: $PAC_CMD ${args[*]}"
-    exit 0
-  fi
-
-  if echo "$output" | grep -qiE 'unknown command|unrecognized command|command not found|not a valid command|not recognized as an internal or external command|unknown argument|unrecognized argument|unknown option|unrecognized option'; then
-    echo "Command syntax not supported, trying next: $PAC_CMD ${args[*]}"
-    continue
-  fi
-
-  echo "$output"
-  echo "Solution health check failed for '$SOLUTION_NAME' with command: $PAC_CMD ${args[*]}"
+if [ -z "$(ls -A "$REPORT_DIR" 2>/dev/null)" ]; then
+  echo "ERROR: Solution Checker did not produce any report in $REPORT_DIR"
   exit 1
+fi
+
+# Keep a zip of the raw report alongside the unpacked directory so existing
+# "upload solution checker report" steps in the calling workflows keep working.
+(cd "$(dirname "$REPORT_DIR")" && zip -qr "$(basename "$REPORT_ZIP")" "$(basename "$REPORT_DIR")")
+
+mapfile -t SARIF_FILES < <(find "$REPORT_DIR" -type f \( -name '*.sarif' -o -name '*.sarif.json' \))
+if [ "${#SARIF_FILES[@]}" -eq 0 ]; then
+  echo "ERROR: No SARIF report files found in $REPORT_DIR"
+  exit 1
+fi
+
+# SARIF only defines four result levels: error, warning, note, none.
+# Fail on any level at or above the requested threshold.
+LEVELS_TO_FAIL=(error)
+if [ "$MAX_LEVEL" = "warning" ] || [ "$MAX_LEVEL" = "note" ]; then
+  LEVELS_TO_FAIL+=(warning)
+fi
+if [ "$MAX_LEVEL" = "note" ]; then
+  LEVELS_TO_FAIL+=(note)
+fi
+LEVELS_JSON=$(printf '%s\n' "${LEVELS_TO_FAIL[@]}" | jq -R . | jq -s .)
+
+TOTAL_FINDINGS=0
+for SARIF_FILE in "${SARIF_FILES[@]}"; do
+  COUNT=$(jq --argjson levels "$LEVELS_JSON" \
+    '[.runs[]?.results[]? | select(.level as $l | $levels | index($l))] | length' \
+    "$SARIF_FILE")
+
+  if [ "$COUNT" -gt 0 ]; then
+    echo "Findings in $(basename "$SARIF_FILE"):"
+    jq --argjson levels "$LEVELS_JSON" \
+      '.runs[]?.results[]? | select(.level as $l | $levels | index($l)) | {level, ruleId, message: .message.text}' \
+      "$SARIF_FILE"
+  fi
+
+  TOTAL_FINDINGS=$((TOTAL_FINDINGS + COUNT))
 done
 
-echo "ERROR: No supported Power Platform Solution Checker command syntax was found."
-exit 1
+if [ "$TOTAL_FINDINGS" -gt 0 ]; then
+  echo "Solution health check failed for '$SOLUTION_NAME': $TOTAL_FINDINGS finding(s) at or above level '$MAX_LEVEL'."
+  exit 1
+fi
+
+echo "Solution health check passed for '$SOLUTION_NAME': no findings at or above level '$MAX_LEVEL'."
+exit 0
