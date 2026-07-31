@@ -60,6 +60,8 @@ L'export d'une solution Power Apps reflète l'état complet de la solution dans 
 - `backup-dev-changes` exporte un snapshot de secours d'un environnement de développement sans pousser quoi que ce soit dans Git.
 - `capture-dev-changes` bloque les captures obsolètes puis exporte les solutions modifiées vers la branche de feature.
 - `single-run-promotion` promeut les changements mergés dans `main`.
+- `prepare-hotfix-environment` prépare un environnement de développement à partir d'une **release de production existante** (pas de `main`), pour isoler un correctif urgent. Voir [Hotfix en production](#hotfix-en-production).
+- `hotfix-deploy` exporte, valide et déploie un hotfix directement en **prod**, puis ouvre une Pull Request pour le réintégrer dans `main`. Voir [Hotfix en production](#hotfix-en-production).
 
 ### Convention de nommage des environnements de développement (scalabilité)
 
@@ -81,6 +83,62 @@ Ajouter un développeur ne nécessite plus de modifier les workflows. Il suffit 
 2. Ajouter les variables `DEV_<SLUG_MAJUSCULE>_ENV_URL` et `DEV_<SLUG_MAJUSCULE>_ENV_ID` (au niveau du dépôt ou de cet Environment).
 3. Ajouter, si nécessaire, les secrets propres à cet Environment.
 4. Lancer `prepare-dev-environment` en indiquant `dev_<slug>` comme valeur du champ `environment` (champ texte libre, plus une liste déroulante fixe).
+
+## Rollback en production
+
+Dataverse refuse en général de réimporter une solution managée avec un numéro de version inférieur à celui déjà installé ("a higher version of this solution already exists"). Un rollback binaire classique (réimporter un ancien `.zip` managé) n'est donc **pas fiable**. La stratégie recommandée est le **roll-forward** : au lieu de revenir en arrière, on avance avec une nouvelle version qui contient le contenu d'avant.
+
+### Procédure
+
+1. Identifier le(s) commit(s) fautif(s) fusionné(s) dans `main`.
+2. Faire un `git revert` de ce(s) commit(s) (pas un reset, pour conserver l'historique) :
+   ```bash
+   git checkout main
+   git pull
+   git revert <sha-du-commit-fautif>
+   git push origin main
+   ```
+3. Le push sur `main` relance automatiquement `single-run-promotion`, qui génère une **nouvelle version** (supérieure à la précédente) contenant le contenu restauré, et la fait passer par tout le pipeline habituel (Solution Checker, dev → qa → prep → porte d'approbation → prod).
+4. Utiliser l'input `solutions` de `single-run-promotion` (`workflow_dispatch`) si seule une solution précise doit être re-promue rapidement, plutôt que d'attendre la détection de changement automatique.
+
+Cette approche fonctionne car la version générée est toujours strictement croissante, ce qui évite le blocage de version décrit ci-dessus.
+
+### Cas extrême : restauration d'environnement
+
+Pour un incident majeur touchant les données (pas seulement la solution), la restauration d'un environnement Dataverse à un point dans le temps (backup/restore) reste possible mais doit être traitée comme une procédure de reprise après sinistre, pas comme un rollback de routine : elle restaure **tout** l'environnement (données comprises) et entraîne une perte de tout ce qui a été saisi après le point de restauration.
+
+## Hotfix en production
+
+Cette procédure permet de déployer un correctif minimal directement en production en cas d'incident, sans attendre le passage normal par dev/qa/prep, tout en garantissant que le correctif est ensuite réintégré dans `main`.
+
+### Principe
+
+- Le hotfix part d'une **release de production existante** (un tag Git, ex. `2026.211.1.0`), jamais de `main`, pour ne pas embarquer des changements non encore livrés en prod.
+- Le correctif passe quand même par le Solution Checker et par la porte d'approbation manuelle `prod-approval` avant d'atteindre prod : ces garde-fous ne sont jamais contournés, même en urgence.
+- Une fois en prod, une Pull Request est ouverte automatiquement vers `main` pour que le correctif soit relu, fusionné, puis redéployé normalement dans dev/qa/prep (garder tous les environnements synchronisés).
+
+### Étapes
+
+1. **Identifier la release de production actuelle** à corriger (voir la liste des tags du dépôt, format `YEAR.DAYOFYEAR.RELEASE.HOTFIX`, ex. `2026.211.1.0` — sans préfixe `v`, même si le nom de la GitHub Release affichée en a un).
+
+2. **Lancer `prepare-hotfix-environment`** avec :
+   - `environment`: un environnement `dev_<slug>` disponible.
+   - `hotfix_name`: un nom court (ex. `login-crash`).
+   - `base_release`: la version identifiée à l'étape 1.
+
+   Ce workflow réinitialise l'environnement choisi, y importe les solutions **telles qu'elles sont en prod** (pas `main`), et crée la branche `hotfix/<hotfix_name>`.
+
+3. **Faire le correctif minimal** directement dans l'environnement préparé (Power Apps Studio / portail maker), uniquement dans la ou les solutions concernées.
+
+4. **Lancer `hotfix-deploy`** avec les mêmes `environment`, `hotfix_name`, `base_release`, plus `solutions` (liste des solutions réellement modifiées).
+
+   Ce workflow : exporte la solution, passe le Solution Checker, committe le code source sur la branche `hotfix/<hotfix_name>` (sans rebase sur `main` — isolation volontaire), calcule une version de type `<RELEASE>.<HOTFIX+1>`, attend l'approbation `prod-approval`, déploie en prod, tague la release, puis **ouvre automatiquement une Pull Request** `hotfix/<hotfix_name>` → `main`.
+
+5. **Relire et fusionner la Pull Request** ouverte automatiquement. Sa fusion déclenche `single-run-promotion` normalement, qui redéploie le même correctif dans dev/qa/prep (et prod à nouveau, sans effet puisque déjà en place) sous une nouvelle version standard.
+
+### Pourquoi ne pas juste modifier `main` directement ?
+
+Parce que `main` peut contenir des changements non encore livrés en prod (features en cours de qualification dans qa/prep). Un hotfix basé sur `main` risquerait d'emporter ces changements non désirés vers la prod. Partir du tag de production garantit que seul le correctif est livré.
 
 ## Gestion des variables d'environnement
 

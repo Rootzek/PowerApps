@@ -1,0 +1,356 @@
+name: hotfix-deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Dev environment key (format: dev_<slug>) used to stage this hotfix (same one passed to prepare-hotfix-environment).'
+        required: true
+        type: string
+      hotfix_name:
+        description: 'Same hotfix_name used in prepare-hotfix-environment. Branch hotfix/<hotfix_name> must already exist.'
+        required: true
+        type: string
+      base_release:
+        description: 'Production release version being patched, e.g. 2026.211.1.0 (same value passed to prepare-hotfix-environment).'
+        required: true
+        type: string
+      solutions:
+        description: 'Comma-separated solution names actually patched (e.g. MainSolution).'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+
+concurrency:
+  group: hotfix-${{ inputs.hotfix_name }}
+  cancel-in-progress: false
+
+jobs:
+  build-matrix:
+    runs-on: ubuntu-latest
+
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Build solution matrix
+        id: build
+        shell: bash
+        run: |
+          chmod +x .github/scripts/build-solution-matrix.sh
+          MATRIX_JSON=$(.github/scripts/build-solution-matrix.sh "${{ inputs.solutions }}")
+          echo "matrix=$MATRIX_JSON" >> "$GITHUB_OUTPUT"
+          echo "Generated matrix:"
+          echo "$MATRIX_JSON"
+
+  generate-version:
+    needs: build-matrix
+    runs-on: ubuntu-latest
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Compute next hotfix version
+        id: version
+        shell: bash
+        run: |
+          chmod +x .github/scripts/generate-hotfix-version.sh
+          .github/scripts/generate-hotfix-version.sh "${{ inputs.base_release }}"
+
+  export-and-pack:
+    needs:
+      - build-matrix
+      - generate-version
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: hotfix-export-${{ inputs.environment }}-${{ inputs.hotfix_name }}
+      cancel-in-progress: false
+
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve dev environment prefix
+        id: env-prefix
+        uses: ./.github/actions/resolve-dev-environment
+        with:
+          environment: ${{ inputs.environment }}
+
+      - name: Set environment variables
+        id: set-env
+        shell: bash
+        env:
+          ENV_URL: ${{ vars[format('{0}_ENV_URL', steps.env-prefix.outputs.prefix)] }}
+          ENV_ID: ${{ vars[format('{0}_ENV_ID', steps.env-prefix.outputs.prefix)] }}
+        run: |
+          if [ -z "$ENV_URL" ] || [ -z "$ENV_ID" ]; then
+            echo "::error::Missing repository/environment variables for dev environment '${{ inputs.environment }}'. Expected '${{ steps.env-prefix.outputs.prefix }}_ENV_URL' and '${{ steps.env-prefix.outputs.prefix }}_ENV_ID' to be defined."
+            exit 1
+          fi
+          echo "env_url=$ENV_URL" >> "$GITHUB_OUTPUT"
+          echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Make scripts executable
+        shell: bash
+        run: |
+          chmod +x .github/scripts/checkout-or-create-branch.sh
+          chmod +x .github/scripts/check-solution-health.sh
+
+      - name: Checkout existing hotfix branch
+        run: |
+          .github/scripts/checkout-or-create-branch.sh "hotfix/${{ inputs.hotfix_name }}" true
+
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      - name: Export ${{ matrix.name }} unmanaged solution
+        uses: microsoft/powerplatform-actions/export-solution@v1
+        with:
+          environment-url: ${{ steps.set-env.outputs.env_url }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-name: ${{ matrix.name }}
+          solution-output-file: out/${{ matrix.name }}.zip
+          managed: false
+
+      - name: Authenticate to Power Platform for solution check
+        shell: bash
+        run: |
+          "$POWERPLATFORMTOOLS_PACPATH" auth create \
+            --environment "${{ steps.set-env.outputs.env_url }}" \
+            --applicationId "${{ secrets.PP_CLIENT_ID }}" \
+            --tenant "${{ secrets.PP_TENANT_ID }}" \
+            --githubFederated
+
+      - name: Validate solution health
+        shell: bash
+        run: |
+          .github/scripts/check-solution-health.sh "out/${{ matrix.name }}.zip" "${{ matrix.name }}"
+
+      - name: Upload solution checker report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: hotfix-checker-${{ matrix.name }}-${{ needs.generate-version.outputs.version }}
+          path: |
+            out/${{ matrix.name }}_checker_results.zip
+            out/${{ matrix.name }}_checker_results/**
+
+      - name: Clean ${{ matrix.name }} solution folder
+        run: |
+          # Intentionally NOT rebased onto main: the hotfix branch must only
+          # ever contain the base release content plus this fix, isolated
+          # from any unrelated in-flight changes on main.
+          echo "Cleaning solutions/${{ matrix.name }}/src..."
+          rm -rf "solutions/${{ matrix.name }}/src"
+
+      - name: Unpack ${{ matrix.name }} solution
+        uses: microsoft/powerplatform-actions/unpack-solution@v1
+        with:
+          solution-file: out/${{ matrix.name }}.zip
+          solution-folder: solutions/${{ matrix.name }}/src
+          solution-type: Both
+          overwrite-files: true
+
+      - name: Set hotfix solution version
+        shell: bash
+        run: |
+          VERSION="${{ needs.generate-version.outputs.version }}"
+          echo "Setting solution version to $VERSION"
+          sed -i "s/<Version>.*<\/Version>/<Version>$VERSION<\/Version>/" "solutions/${{ matrix.name }}/src/Other/Solution.xml"
+
+      - name: Commit unpacked hotfix solution
+        run: |
+          BRANCH_NAME="hotfix/${{ inputs.hotfix_name }}"
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add "solutions/${{ matrix.name }}/src"
+          git commit -m "hotfix(${{ inputs.hotfix_name }}): sync ${{ matrix.name }} v${{ needs.generate-version.outputs.version }} from ${{ steps.set-env.outputs.env_url }}" || echo "No changes to commit"
+          git push origin "$BRANCH_NAME"
+
+      - name: Pack ${{ matrix.name }} as managed for prod
+        uses: microsoft/powerplatform-actions/pack-solution@v1
+        with:
+          solution-folder: solutions/${{ matrix.name }}/src
+          solution-file: out/${{ matrix.name }}_${{ needs.generate-version.outputs.version }}_managed.zip
+          solution-type: Managed
+
+      - name: Upload managed artifact for ${{ matrix.name }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: hotfix-managed-${{ matrix.name }}-${{ needs.generate-version.outputs.version }}
+          path: out/${{ matrix.name }}_${{ needs.generate-version.outputs.version }}_managed.zip
+          if-no-files-found: error
+
+  approve-hotfix-production:
+    # Same non-negotiable manual gate as single-run-promotion.yml. Configure
+    # "Required reviewers" on the "prod-approval" GitHub Environment so this
+    # job pauses for sign-off before the fix reaches prod.
+    needs:
+      - build-matrix
+      - generate-version
+      - export-and-pack
+    runs-on: ubuntu-latest
+    environment: prod-approval
+
+    steps:
+      - name: Hotfix production deployment approved
+        shell: bash
+        run: |
+          echo "## ✅ Hotfix production approval granted" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Hotfix **${{ inputs.hotfix_name }}** (v${{ needs.generate-version.outputs.version }}, patching release ${{ inputs.base_release }}) approved for deployment to **prod**." >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-hotfix-prod:
+    needs:
+      - build-matrix
+      - generate-version
+      - export-and-pack
+      - approve-hotfix-production
+    runs-on: ubuntu-latest
+    environment: prod
+
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      - name: Download artifact for ${{ matrix.name }}
+        uses: actions/download-artifact@v7
+        with:
+          name: hotfix-managed-${{ matrix.name }}-${{ needs.generate-version.outputs.version }}
+          path: out
+
+      - name: Prepare deployment settings for ${{ matrix.name }}
+        id: settings
+        shell: bash
+        run: |
+          chmod +x .github/scripts/prepare-deployment-settings.sh
+          .github/scripts/prepare-deployment-settings.sh "solutions/${{ matrix.name }}/env-settings/prod.json"
+
+      - name: Import ${{ matrix.name }} to PROD
+        if: steps.settings.outputs.has_settings == 'true'
+        uses: microsoft/powerplatform-actions/import-solution@v1
+        with:
+          environment-url: ${{ vars.PROD_ENV_URL }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-file: out/${{ matrix.name }}_${{ needs.generate-version.outputs.version }}_managed.zip
+          force-overwrite: true
+          publish-changes: true
+          deployment-settings-file: ${{ steps.settings.outputs.settings_file }}
+
+      - name: Import ${{ matrix.name }} to PROD
+        if: steps.settings.outputs.has_settings != 'true'
+        uses: microsoft/powerplatform-actions/import-solution@v1
+        with:
+          environment-url: ${{ vars.PROD_ENV_URL }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-file: out/${{ matrix.name }}_${{ needs.generate-version.outputs.version }}_managed.zip
+          force-overwrite: true
+          publish-changes: true
+
+  tag-hotfix-release:
+    # Runs only after prod succeeds, so a tag/GitHub Release is never
+    # created for a hotfix that failed to reach prod.
+    needs:
+      - generate-version
+      - deploy-hotfix-prod
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout hotfix branch
+        uses: actions/checkout@v6
+        with:
+          ref: hotfix/${{ inputs.hotfix_name }}
+          fetch-depth: 0
+
+      - name: Create and push Git tag if missing
+        id: tag
+        shell: bash
+        run: |
+          chmod +x .github/scripts/create-release-tag.sh
+          .github/scripts/create-release-tag.sh "${{ needs.generate-version.outputs.version }}"
+
+      - name: Create GitHub release if missing
+        uses: softprops/action-gh-release@v3
+        with:
+          # Must match the tag actually created/pushed by create-release-tag.sh
+          # above (no "v" prefix), so this reuses that same tag instead of
+          # creating a second, different one.
+          tag_name: ${{ needs.generate-version.outputs.version }}
+          name: "Hotfix v${{ needs.generate-version.outputs.version }} (patches ${{ inputs.base_release }})"
+          target_commitish: hotfix/${{ inputs.hotfix_name }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+
+  open-backport-pr:
+    # Ensures the hotfix is never only "in prod" - it must flow back into
+    # main so Git stays the source of truth and dev/qa/prep get the fix too
+    # on next merge (single-run-promotion will redeploy it under a new
+    # regular version, which is expected and safe/idempotent).
+    needs:
+      - generate-version
+      - tag-hotfix-release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Open pull request to merge hotfix back into main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH_NAME: hotfix/${{ inputs.hotfix_name }}
+          VERSION: ${{ needs.generate-version.outputs.version }}
+          BASE_RELEASE: ${{ inputs.base_release }}
+        shell: bash
+        run: |
+          git fetch origin "$BRANCH_NAME"
+
+          EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --base main --state open --json number --jq '.[0].number' || true)
+          if [ -n "$EXISTING_PR" ]; then
+            echo "PR #$EXISTING_PR already open for $BRANCH_NAME, skipping creation."
+            exit 0
+          fi
+
+          BODY=$(printf 'This hotfix was deployed directly to **prod** (v%s, patching release %s) via `hotfix-deploy`, bypassing dev/qa/prep.\n\nMerging this PR will run `single-run-promotion` normally and redeploy the same fix through dev -> qa -> prep -> prod under a new regular version. This is expected and keeps every environment in sync with prod.\n\nPlease review the diff before merging.' "$VERSION" "$BASE_RELEASE")
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH_NAME" \
+            --title "Backport hotfix: ${{ inputs.hotfix_name }} (v$VERSION)" \
+            --body "$BODY"
