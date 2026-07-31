@@ -1,0 +1,37 @@
+name: Resolve dev environment prefix
+description: >-
+  Validates a dev_* environment key against the naming convention and derives
+  the uppercase variable prefix used to look up its DEV_<SLUG>_ENV_URL and
+  DEV_<SLUG>_ENV_ID repository/environment variables. The actual variable
+  lookup happens in the calling workflow, because the `vars` context is not
+  available inside composite action steps.
+
+inputs:
+  environment:
+    description: 'Dev environment key, must match ^dev_[a-z0-9]+$ (e.g. dev_user1, dev_user3)'
+    required: true
+
+outputs:
+  prefix:
+    description: 'Uppercase variable prefix, e.g. DEV_USER1'
+    value: ${{ steps.prefix.outputs.prefix }}
+
+runs:
+  using: composite
+  steps:
+    - name: Validate environment naming convention
+      shell: bash
+      run: |
+        ENVIRONMENT="${{ inputs.environment }}"
+        if [[ ! "$ENVIRONMENT" =~ ^dev_[a-z0-9]+$ ]]; then
+          echo "::error::Invalid dev environment key '$ENVIRONMENT'. Expected format: dev_<slug> (lowercase letters/digits only), e.g. dev_user1."
+          exit 1
+        fi
+
+    - name: Compute variable prefix
+      id: prefix
+      shell: bash
+      run: |
+        ENVIRONMENT="${{ inputs.environment }}"
+        PREFIX=$(echo "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')
+        echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
