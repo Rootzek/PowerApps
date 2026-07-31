@@ -137,15 +137,18 @@ jobs:
           # Remove leading zeros (001 → 1)
           DAY_OF_YEAR=$((10#$DAY_OF_YEAR))
 
-          # Get today's releases
-          TAG_PREFIX="v$YEAR.$DAY_OF_YEAR."
+          # Get today's releases.
+          # NOTE: tags are created WITHOUT a "v" prefix (see create-release-tag.sh);
+          # the "v" only appears on the GitHub Release display name below, not on
+          # the underlying git tag, so the search prefix must match that.
+          TAG_PREFIX="$YEAR.$DAY_OF_YEAR."
 
           TAGS=$(git tag | grep "^$TAG_PREFIX" || true)
 
           if [ -z "$TAGS" ]; then
             RELEASE=1
           else
-            MAX=$(echo "$TAGS" | sed -E "s/v$YEAR\.$DAY_OF_YEAR\.([0-9]+)\..*/\1/" | sort -n | tail -n 1)
+            MAX=$(echo "$TAGS" | sed -E "s/$YEAR\.$DAY_OF_YEAR\.([0-9]+)\..*/\1/" | sort -n | tail -n 1)
             RELEASE=$((MAX + 1))
           fi
 
@@ -544,7 +547,10 @@ jobs:
       - name: Create GitHub release if missing
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: v${{ needs.generate-version.outputs.version }}
+          # Must match the tag actually created/pushed by create-release-tag.sh
+          # above (no "v" prefix), so this reuses that same tag instead of
+          # creating a second, different one.
+          tag_name: ${{ needs.generate-version.outputs.version }}
           name: Release v${{ needs.generate-version.outputs.version }}
           generate_release_notes: true
           draft: false

@@ -1,0 +1,311 @@
+name: prepare-hotfix-environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Dev environment key (format: dev_<slug>) used to stage the hotfix. Requires matching DEV_<SLUG>_ENV_URL / DEV_<SLUG>_ENV_ID variables and a GitHub Environment of the same name.'
+        required: true
+        type: string
+      hotfix_name:
+        description: 'Short name for the hotfix (e.g. login-crash). Branch will be created as hotfix/<hotfix_name>.'
+        required: true
+        type: string
+      base_release:
+        description: 'Production release version being patched, e.g. 2026.211.1.0. Must match an existing git tag (check the repo Tags list - note tags do NOT have a "v" prefix even though GitHub Releases display one).'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  validate-base-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate base release tag exists
+        shell: bash
+        run: |
+          if ! git rev-parse --verify --quiet "refs/tags/${{ inputs.base_release }}" > /dev/null; then
+            echo "::error::Tag '${{ inputs.base_release }}' does not exist. Use an existing production release version (check the repo Tags list)."
+            exit 1
+          fi
+          echo "Base release '${{ inputs.base_release }}' found."
+
+  build-matrix:
+    needs: validate-base-release
+    runs-on: ubuntu-latest
+
+    outputs:
+      matrix: ${{ steps.manifest.outputs.matrix }}
+
+    steps:
+      - name: Checkout repo at base release
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.base_release }}
+          fetch-depth: 0
+
+      - name: Install yq + jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+          pip install yq
+
+      - name: Read and sort release manifest
+        id: manifest
+        shell: bash
+        run: |
+          FILE="manifests/releases/current.yml"
+          MATRIX_JSON=$(yq '.solutions' "$FILE" | jq -c '{include: sort_by(.order)}')
+          echo "matrix=$MATRIX_JSON" >> "$GITHUB_OUTPUT"
+          echo "Generated matrix:"
+          echo "$MATRIX_JSON"
+
+  prepare-env:
+    needs:
+      - validate-base-release
+      - build-matrix
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    outputs:
+      env_url: ${{ steps.set-env.outputs.env_url }}
+      env_id: ${{ steps.set-env.outputs.env_id }}
+      branch_name: ${{ steps.validate-branch.outputs.branch_name }}
+      source_sha: ${{ steps.capture-source.outputs.source_sha }}
+
+    steps:
+      - name: Checkout repo at base release
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.base_release }}
+          fetch-depth: 0
+
+      - name: Validate hotfix branch does not exist
+        id: validate-branch
+        shell: bash
+        run: |
+          git fetch --prune origin +refs/heads/*:refs/remotes/origin/*
+
+          FULL_BRANCH_NAME="hotfix/${{ inputs.hotfix_name }}"
+
+          if git rev-parse --verify "origin/${FULL_BRANCH_NAME}" >/dev/null 2>&1; then
+            echo "Error: Branch '${FULL_BRANCH_NAME}' already exists on origin"
+            exit 1
+          fi
+
+          if git rev-parse --verify "${FULL_BRANCH_NAME}" >/dev/null 2>&1; then
+            echo "Error: Branch '${FULL_BRANCH_NAME}' already exists locally"
+            exit 1
+          fi
+
+          echo "Branch '${FULL_BRANCH_NAME}' is available"
+          echo "branch_name=${FULL_BRANCH_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Capture source revision
+        id: capture-source
+        shell: bash
+        run: |
+          SOURCE_SHA=$(git rev-parse HEAD)
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "Preparing hotfix environment from release ${{ inputs.base_release }} at $SOURCE_SHA"
+
+      - name: Resolve dev environment prefix
+        id: env-prefix
+        uses: ./.github/actions/resolve-dev-environment
+        with:
+          environment: ${{ inputs.environment }}
+
+      - name: Set environment variables
+        id: set-env
+        shell: bash
+        env:
+          ENV_URL: ${{ vars[format('{0}_ENV_URL', steps.env-prefix.outputs.prefix)] }}
+          ENV_ID: ${{ vars[format('{0}_ENV_ID', steps.env-prefix.outputs.prefix)] }}
+        run: |
+          if [ -z "$ENV_URL" ] || [ -z "$ENV_ID" ]; then
+            echo "::error::Missing repository/environment variables for dev environment '${{ inputs.environment }}'. Expected '${{ steps.env-prefix.outputs.prefix }}_ENV_URL' and '${{ steps.env-prefix.outputs.prefix }}_ENV_ID' to be defined."
+            exit 1
+          fi
+          echo "env_url=$ENV_URL" >> "$GITHUB_OUTPUT"
+          echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
+          echo "Using $ENV_URL"
+
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      - name: Authenticate to Power Platform
+        shell: bash
+        run: |
+          "$POWERPLATFORMTOOLS_PACPATH" auth create \
+            --environment "${{ steps.set-env.outputs.env_url }}" \
+            --applicationId "${{ secrets.PP_CLIENT_ID }}" \
+            --tenant "${{ secrets.PP_TENANT_ID }}" \
+            --githubFederated
+
+      - name: Reset environment
+        shell: bash
+        run: |
+          echo "Resetting environment: ${{ steps.set-env.outputs.env_url }}"
+          "$POWERPLATFORMTOOLS_PACPATH" admin reset \
+            --environment "${{ steps.set-env.outputs.env_url }}"
+
+  pack-solutions:
+    needs:
+      - build-matrix
+      - prepare-env
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repo at base release
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.base_release }}
+          fetch-depth: 0
+
+      - name: Validate folder exists
+        shell: bash
+        run: |
+          test -d "solutions/${{ matrix.name }}/src" || {
+            echo "Folder not found: solutions/${{ matrix.name }}/src"
+            exit 1
+          }
+
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      - name: Pack ${{ matrix.name }} as unmanaged
+        uses: microsoft/powerplatform-actions/pack-solution@v1
+        with:
+          solution-folder: solutions/${{ matrix.name }}/src
+          solution-file: out/${{ matrix.name }}_unmanaged.zip
+          solution-type: Unmanaged
+
+      - name: Upload artifact for ${{ matrix.name }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: hotfix-solution-${{ matrix.name }}
+          path: out/${{ matrix.name }}_unmanaged.zip
+          if-no-files-found: error
+
+  import-solutions:
+    needs:
+      - build-matrix
+      - prepare-env
+      - pack-solutions
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repo at base release
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.base_release }}
+
+      - name: Install Power Platform Tools
+        uses: microsoft/powerplatform-actions/actions-install@v1
+
+      - name: Download ${{ matrix.name }} artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: hotfix-solution-${{ matrix.name }}
+          path: out
+
+      - name: Import ${{ matrix.name }} to ${{ inputs.environment }}
+        uses: microsoft/powerplatform-actions/import-solution@v1
+        with:
+          environment-url: ${{ needs.prepare-env.outputs.env_url }}
+          app-id: ${{ secrets.PP_CLIENT_ID }}
+          tenant-id: ${{ secrets.PP_TENANT_ID }}
+          solution-file: out/${{ matrix.name }}_unmanaged.zip
+          force-overwrite: true
+          publish-changes: true
+
+  stamp-environment:
+    needs:
+      - prepare-env
+      - import-solutions
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout repo at base release
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.base_release }}
+
+      - name: Stamp environment preparation metadata
+        shell: bash
+        env:
+          ENV_URL: ${{ needs.prepare-env.outputs.env_url }}
+          BRANCH_NAME: ${{ needs.prepare-env.outputs.branch_name }}
+          SOURCE_SHA: ${{ needs.prepare-env.outputs.source_sha }}
+          TENANT_ID: ${{ secrets.PP_TENANT_ID }}
+          CLIENT_ID: ${{ secrets.PP_CLIENT_ID }}
+        run: |
+          chmod +x .github/scripts/stamp-environment.sh
+          .github/scripts/stamp-environment.sh
+
+  create-hotfix-branch:
+    needs:
+      - prepare-env
+      - import-solutions
+      - stamp-environment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout base release
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare-env.outputs.source_sha }}
+          fetch-depth: 0
+
+      - name: Create and push hotfix branch
+        shell: bash
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          BRANCH_NAME="${{ needs.prepare-env.outputs.branch_name }}"
+          if [ -z "$BRANCH_NAME" ]; then
+            echo "Error: computed branch name is empty"
+            exit 1
+          fi
+          echo "Creating branch '$BRANCH_NAME' from release ${{ inputs.base_release }}"
+          git checkout -b "$BRANCH_NAME"
+          git push --set-upstream origin "$BRANCH_NAME"
+          echo "Branch created and pushed: $BRANCH_NAME"
+          git branch --show-current
+          git ls-remote --heads origin "$BRANCH_NAME"
+
+      - name: Output summary
+        shell: bash
+        run: |
+          echo "## Hotfix Environment Preparation Complete ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Base release patched:** ${{ inputs.base_release }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dev Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment URL:** ${{ needs.prepare-env.outputs.env_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch Created:** ${{ needs.prepare-env.outputs.branch_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Instance Reset:** ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **Solutions Imported (as of base release):** ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **Next Steps:**" >> $GITHUB_STEP_SUMMARY
+          echo "-- https://make.powerapps.com/environments/${{ needs.prepare-env.outputs.env_id }}/home" >> $GITHUB_STEP_SUMMARY
+          echo "-- Make ONLY the minimal fix needed, in the affected solution(s)" >> $GITHUB_STEP_SUMMARY
+          echo "-- Run **hotfix-deploy** with environment=${{ inputs.environment }}, hotfix_name=${{ inputs.hotfix_name }}, base_release=${{ inputs.base_release }}, solutions=<affected solution(s)>" >> $GITHUB_STEP_SUMMARY
