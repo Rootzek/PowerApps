@@ -28,11 +28,15 @@ jobs:
       matrix: ${{ steps.build.outputs.matrix }}
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
       - name: Build solution matrix
         id: build
         shell: bash
         run: |
-          MATRIX_JSON=$(jq -n --arg solutions "${{ inputs.solutions }}" -c '{include: ($solutions | split(",") | map(gsub("^\\s+|\\s+$";"") | select(length > 0) | {name: .}))}')
+          chmod +x .github/scripts/build-solution-matrix.sh
+          MATRIX_JSON=$(.github/scripts/build-solution-matrix.sh "${{ inputs.solutions }}")
           echo "matrix=$MATRIX_JSON" >> "$GITHUB_OUTPUT"
           echo "Generated matrix:"
           echo "$MATRIX_JSON"

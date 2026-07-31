@@ -20,6 +20,10 @@ permissions:
   contents: write
   id-token: write
 
+concurrency:
+  group: promotion-main
+  cancel-in-progress: false
+
 jobs:
   build-matrix:
     runs-on: ubuntu-latest
@@ -79,11 +83,21 @@ jobs:
             FILTERED_MATRIX='{"include": []}'
             ANY_CHANGED=false
 
+            # HEAD~1 does not exist on the very first commit of the repo/branch.
+            # Fall back to Git's empty tree SHA so the diff still works and is
+            # effectively "everything changed" instead of failing the workflow.
+            if git rev-parse --verify --quiet HEAD~1 > /dev/null; then
+              DIFF_BASE="HEAD~1"
+            else
+              echo "HEAD~1 does not exist (first commit on this ref). Diffing against the empty tree instead."
+              DIFF_BASE="4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+            fi
+
             while IFS=$'\n' read -r item; do
               NAME=$(echo "$item" | jq -r '.name')
               ORDER=$(echo "$item" | jq -r '.order')
               
-              if ! git diff --quiet HEAD~1 HEAD -- "solutions/$NAME/src"; then
+              if ! git diff --quiet "$DIFF_BASE" HEAD -- "solutions/$NAME/src"; then
                 FILTERED_MATRIX=$(jq -c --arg name "$NAME" --argjson order "$ORDER" '.include += [{name: $name, order: $order}]' <<< "$FILTERED_MATRIX")
                 ANY_CHANGED=true
               fi
@@ -259,22 +273,8 @@ jobs:
         id: tag
         shell: bash
         run: |
-          TAG="${{ needs.generate-version.outputs.version }}"
-          echo "tag_name=$TAG" >> "$GITHUB_OUTPUT"
-
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists locally."
-          else
-            git config user.name "github-actions"
-            git config user.email "actions@github.com"
-            git tag -a "$TAG" -m "Release $TAG"
-          fi
-
-          if git ls-remote --tags origin "refs/tags/$TAG" | grep "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists on origin."
-          else
-            git push origin "$TAG"
-          fi
+          chmod +x .github/scripts/create-release-tag.sh
+          .github/scripts/create-release-tag.sh "${{ needs.generate-version.outputs.version }}"
 
       - name: Create GitHub release if missing
         uses: softprops/action-gh-release@v3
@@ -317,18 +317,8 @@ jobs:
         id: settings
         shell: bash
         run: |
-          FILE="solutions/${{ matrix.name }}/env-settings/dev.json"
-          if [ -f "$FILE" ]; then
-            # Inject GitHub secrets and variables into the settings file.
-            # Add one export line per placeholder (${PLACEHOLDER}) used in the file.
-            # Example: export MY_API_KEY="${{ secrets.MY_API_KEY }}"
-            # Example: export MY_SERVICE_URL="${{ vars.MY_SERVICE_URL }}"
-            envsubst < "$FILE" > "${FILE}.tmp" && mv "${FILE}.tmp" "$FILE"
-            echo "has_settings=true" >> "$GITHUB_OUTPUT"
-            echo "settings_file=$FILE" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_settings=false" >> "$GITHUB_OUTPUT"
-          fi
+          chmod +x .github/scripts/prepare-deployment-settings.sh
+          .github/scripts/prepare-deployment-settings.sh "solutions/${{ matrix.name }}/env-settings/dev.json"
 
       - name: Import ${{ matrix.name }} to DEV
         if: steps.settings.outputs.has_settings == 'true'
@@ -386,18 +376,8 @@ jobs:
         id: settings
         shell: bash
         run: |
-          FILE="solutions/${{ matrix.name }}/env-settings/qa.json"
-          if [ -f "$FILE" ]; then
-            # Inject GitHub secrets and variables into the settings file.
-            # Add one export line per placeholder (${PLACEHOLDER}) used in the file.
-            # Example: export MY_API_KEY="${{ secrets.MY_API_KEY }}"
-            # Example: export MY_SERVICE_URL="${{ vars.MY_SERVICE_URL }}"
-            envsubst < "$FILE" > "${FILE}.tmp" && mv "${FILE}.tmp" "$FILE"
-            echo "has_settings=true" >> "$GITHUB_OUTPUT"
-            echo "settings_file=$FILE" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_settings=false" >> "$GITHUB_OUTPUT"
-          fi
+          chmod +x .github/scripts/prepare-deployment-settings.sh
+          .github/scripts/prepare-deployment-settings.sh "solutions/${{ matrix.name }}/env-settings/qa.json"
 
       - name: Import ${{ matrix.name }} to QA
         if: steps.settings.outputs.has_settings == 'true'
@@ -456,18 +436,8 @@ jobs:
         id: settings
         shell: bash
         run: |
-          FILE="solutions/${{ matrix.name }}/env-settings/prep.json"
-          if [ -f "$FILE" ]; then
-            # Inject GitHub secrets and variables into the settings file.
-            # Add one export line per placeholder (${PLACEHOLDER}) used in the file.
-            # Example: export MY_API_KEY="${{ secrets.MY_API_KEY }}"
-            # Example: export MY_SERVICE_URL="${{ vars.MY_SERVICE_URL }}"
-            envsubst < "$FILE" > "${FILE}.tmp" && mv "${FILE}.tmp" "$FILE"
-            echo "has_settings=true" >> "$GITHUB_OUTPUT"
-            echo "settings_file=$FILE" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_settings=false" >> "$GITHUB_OUTPUT"
-          fi
+          chmod +x .github/scripts/prepare-deployment-settings.sh
+          .github/scripts/prepare-deployment-settings.sh "solutions/${{ matrix.name }}/env-settings/prep.json"
 
       - name: Import ${{ matrix.name }} to PREP
         if: steps.settings.outputs.has_settings == 'true'
@@ -527,18 +497,8 @@ jobs:
         id: settings
         shell: bash
         run: |
-          FILE="solutions/${{ matrix.name }}/env-settings/prod.json"
-          if [ -f "$FILE" ]; then
-            # Inject GitHub secrets and variables into the settings file.
-            # Add one export line per placeholder (${PLACEHOLDER}) used in the file.
-            # Example: export MY_API_KEY="${{ secrets.MY_API_KEY }}"
-            # Example: export MY_SERVICE_URL="${{ vars.MY_SERVICE_URL }}"
-            envsubst < "$FILE" > "${FILE}.tmp" && mv "${FILE}.tmp" "$FILE"
-            echo "has_settings=true" >> "$GITHUB_OUTPUT"
-            echo "settings_file=$FILE" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_settings=false" >> "$GITHUB_OUTPUT"
-          fi
+          chmod +x .github/scripts/prepare-deployment-settings.sh
+          .github/scripts/prepare-deployment-settings.sh "solutions/${{ matrix.name }}/env-settings/prod.json"
 
       - name: Import ${{ matrix.name }} to PROD
         if: steps.settings.outputs.has_settings == 'true'
